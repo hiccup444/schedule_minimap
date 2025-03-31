@@ -1,7 +1,7 @@
-﻿using System;
-using System.Reflection;
+using System;
 using MelonLoader;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace MinimapMod
 {
@@ -13,50 +13,106 @@ namespace MinimapMod
         private static GameObject minimapObject;
         private static bool isInitializing = false;
         private static bool isEnabled = true;
+        private RectTransform cachedDirectionIndicator;
 
         // References to track game objects
+        private Text minimapTimeText;
         private static GameObject mapAppObject;
         private static GameObject viewportObject;
         private static GameObject playerObject;
         private static GameObject mapContentObject;
         private static RectTransform gridContainer;
 
-        // Update interval
-        private static float updateInterval = 0.1f;
-        private static float lastUpdateTime = 0f;
+        // Rotates a vector by a given angle (in degrees)
+        private Vector2 RotateVector(Vector2 v, float degrees)
+        {
+            float rad = degrees * 0.0174532924f; // degrees to radians
+            float cos = Mathf.Cos(rad);
+            float sin = Mathf.Sin(rad);
+            return new Vector2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
+        }
+
+        private void CreateMinimapTimeDisplay(Transform parent)
+        {
+            // Create a container for the time display.
+            GameObject timeContainer = new GameObject("MinimapTimeContainer");
+            timeContainer.transform.SetParent(parent, false);
+            RectTransform timeRect = timeContainer.AddComponent<RectTransform>();
+            // Set size of the container.
+            timeRect.sizeDelta = new Vector2(100, 30);
+            // Anchor it to the bottom center of the parent (e.g., the minimap frame).
+            timeRect.anchorMin = new Vector2(0.5f, 0);
+            timeRect.anchorMax = new Vector2(0.5f, 0);
+            timeRect.pivot = new Vector2(0.5f, 1);
+            // Position it slightly below the parent's bottom edge.
+            timeRect.anchoredPosition = new Vector2(0, -10);
+
+            // Add a semi-transparent grey background.
+            Image bgImage = timeContainer.AddComponent<Image>();
+            bgImage.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
+
+            // Create the text object.
+            GameObject timeTextObj = new GameObject("MinimapTime");
+            timeTextObj.transform.SetParent(timeContainer.transform, false);
+            RectTransform textRect = timeTextObj.AddComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0, 0);
+            textRect.anchorMax = new Vector2(1, 1);
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+
+            minimapTimeText = timeTextObj.AddComponent<Text>();
+            minimapTimeText.text = "Time";
+            minimapTimeText.alignment = TextAnchor.MiddleCenter;
+            minimapTimeText.color = Color.white;
+            // Use the built-in Arial font.
+            minimapTimeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        }
+
+        private void UpdateMinimapTime()
+        {
+            // Locate the in-game time text.
+            GameObject timeObj = GameObject.Find("GameplayMenu/Phone/phone/HomeScreen/InfoBar/Time");
+            if (timeObj != null)
+            {
+                Text gameTimeText = timeObj.GetComponent<Text>();
+                if (gameTimeText != null && minimapTimeText != null)
+                {
+                    minimapTimeText.text = gameTimeText.text;
+                }
+            }
+        }
 
         // Grid properties
-        private static int gridSize = 20; // Size of each grid cell in pixels
+        private static int gridSize = 20; // grid cell size in pixels
         private static Color gridColor = new Color(0.3f, 0.3f, 0.3f, 1f);
         private static Color bgColor = new Color(0.1f, 0.1f, 0.1f, 1f);
 
-        // Smoothing factor for map movement to reduce shake
+        // Smoothing factor for map movement
         private static float smoothingFactor = 10f;
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
             try
             {
-                // Only initialize in the main game scene, not menus
                 if (sceneName == "Main" && !isInitializing)
                 {
                     isInitializing = true;
                     MelonLogger.Msg("Detected Main scene, initializing Minimap...");
 
-                    // Clean up existing instance
+                    // Clean up any existing minimap instance
                     if (minimapObject != null)
                     {
                         UnityEngine.Object.Destroy(minimapObject);
                         minimapObject = null;
                     }
 
-                    // Create our minimap UI
+                    // Create the minimap UI (which includes player marker setup)
                     CreateMinimapUI();
 
-                    // Start finding game objects
+                    // Start locating required game objects
                     MelonCoroutines.Start(FindGameObjectsRoutine());
-
                     isInitializing = false;
+                    MelonCoroutines.Start(UpdateMinimapTimeCoroutine());
                 }
             }
             catch (Exception ex)
@@ -69,31 +125,23 @@ namespace MinimapMod
         private System.Collections.IEnumerator FindGameObjectsRoutine()
         {
             MelonLogger.Msg("Looking for game objects...");
-
-            // Wait a bit for all game objects to initialize
             yield return new WaitForSeconds(2f);
-
             int attempts = 0;
             while ((mapAppObject == null || playerObject == null) && attempts < 30)
             {
                 attempts++;
-
                 try
                 {
-                    // Find the player
+                    // Locate the player
                     if (playerObject == null)
                     {
                         playerObject = GameObject.Find("Player_Local");
                         if (playerObject != null)
-                        {
                             MelonLogger.Msg("Found Player_Local");
-                        }
                     }
-
-                    // Find the Map App
+                    // Locate the Map App
                     if (mapAppObject == null)
                     {
-                        // Why is IL2CPP like this?
                         GameObject gameplayMenu = GameObject.Find("GameplayMenu");
                         if (gameplayMenu != null)
                         {
@@ -121,8 +169,7 @@ namespace MinimapMod
                             }
                         }
                     }
-
-                    // If we found the MapApp, look for the viewport
+                    // Locate the viewport under Map App
                     if (mapAppObject != null && viewportObject == null)
                     {
                         Transform container = mapAppObject.transform.Find("Container");
@@ -147,105 +194,70 @@ namespace MinimapMod
                 {
                     MelonLogger.Error($"Error finding game objects: {ex.Message}");
                 }
-
                 if (mapAppObject == null || playerObject == null)
-                {
                     yield return new WaitForSeconds(0.5f);
-                }
             }
-
             if (mapAppObject == null)
-            {
                 MelonLogger.Warning("Could not find Map App after multiple attempts");
-            }
             else if (viewportObject == null)
-            {
                 MelonLogger.Warning("Found MapApp but could not find Viewport");
-            }
-
             if (playerObject == null)
-            {
                 MelonLogger.Warning("Could not find Player after multiple attempts");
-            }
-
             MelonLogger.Msg("Game object search completed");
 
-            // Now that we found the objects, let's try to access the map content
+            // Access the map content to apply the map sprite
             if (viewportObject != null)
             {
                 try
                 {
-                    // Check for content in the viewport
                     if (viewportObject.transform.childCount > 0)
                     {
                         Transform contentTransform = viewportObject.transform.GetChild(0);
                         MelonLogger.Msg($"Found viewport content: {contentTransform.name}");
-
-                        // Get the Image component from this content if it exists
-                        UnityEngine.UI.Image contentImage = contentTransform.GetComponent<UnityEngine.UI.Image>();
+                        Image contentImage = contentTransform.GetComponent<Image>();
                         if (contentImage != null && contentImage.sprite != null)
                         {
                             MelonLogger.Msg($"Found content image with sprite: {contentImage.sprite.name}");
-
-                            // Apply this sprite to our minimap
                             if (mapContentObject != null)
                             {
-                                UnityEngine.UI.Image minimapImage = mapContentObject.GetComponent<UnityEngine.UI.Image>();
+                                Image minimapImage = mapContentObject.GetComponent<Image>();
                                 if (minimapImage == null)
-                                {
-                                    minimapImage = mapContentObject.AddComponent<UnityEngine.UI.Image>();
-                                }
-
+                                    minimapImage = mapContentObject.AddComponent<Image>();
                                 minimapImage.sprite = contentImage.sprite;
-                                minimapImage.type = UnityEngine.UI.Image.Type.Simple;
+                                minimapImage.type = Image.Type.Simple;
                                 minimapImage.preserveAspect = true;
-                                // A quick disable/enable trick
+                                // Force update via disable/enable
                                 minimapImage.enabled = false;
                                 minimapImage.enabled = true;
                                 MelonLogger.Msg("Successfully applied map sprite to minimap!");
-
-                                // Hide the grid since we have the actual map
                                 if (gridContainer != null)
-                                {
                                     gridContainer.gameObject.SetActive(false);
-                                }
                             }
                         }
                         else
                         {
                             MelonLogger.Msg("Content doesn't have an Image component or sprite");
-
-                            // Look through children of content using a for loop instead of foreach
                             int childCount = contentTransform.childCount;
                             for (int i = 0; i < childCount; i++)
                             {
                                 Transform child = contentTransform.GetChild(i);
-                                UnityEngine.UI.Image childImage = child.GetComponent<UnityEngine.UI.Image>();
+                                Image childImage = child.GetComponent<Image>();
                                 if (childImage != null && childImage.sprite != null)
                                 {
                                     MelonLogger.Msg($"Found image in content child: {child.name}, Sprite: {childImage.sprite.name}");
-
-                                    // Apply this sprite to our minimap
                                     if (mapContentObject != null)
                                     {
-                                        UnityEngine.UI.Image minimapImage = mapContentObject.GetComponent<UnityEngine.UI.Image>();
+                                        Image minimapImage = mapContentObject.GetComponent<Image>();
                                         if (minimapImage == null)
-                                        {
-                                            minimapImage = mapContentObject.AddComponent<UnityEngine.UI.Image>();
-                                        }
-
+                                            minimapImage = mapContentObject.AddComponent<Image>();
                                         minimapImage.sprite = childImage.sprite;
-                                        minimapImage.type = UnityEngine.UI.Image.Type.Simple;
+                                        minimapImage.type = Image.Type.Simple;
                                         minimapImage.preserveAspect = true;
                                         minimapImage.enabled = false;
                                         minimapImage.enabled = true;
                                         MelonLogger.Msg("Successfully applied map sprite to minimap!");
-
-                                        // Hide the grid since we have the actual map
                                         if (gridContainer != null)
-                                        {
                                             gridContainer.gameObject.SetActive(false);
-                                        }
                                         break;
                                     }
                                 }
@@ -258,177 +270,102 @@ namespace MinimapMod
                     MelonLogger.Error($"Error accessing map content: {ex.Message}");
                 }
             }
-
-            // Create the grid as a fallback if we couldn't get the map
             CreateVisualGrid();
-        }
 
-        private void CreateVisualGrid()
-        {
-            try
+            // Optional: Replace fallback player marker if real asset is available now.
+            GameObject currentMarker = GameObject.Find("PlayerMarker");
+            if (currentMarker != null)
             {
-                if (gridContainer == null)
-                    return;
-
-                // Create grid lines using UI images
-                int gridCount = 10; // Number of grid cells in each direction
-
-                // Create horizontal grid lines
-                for (int i = 0; i <= gridCount; i++)
+                Image markerImage = currentMarker.GetComponent<Image>();
+                if (markerImage != null && markerImage.color.Equals(new Color(0.2f, 0.6f, 1f, 1f)))
                 {
-                    GameObject lineObj = new GameObject($"HLine_{i}");
-                    lineObj.transform.SetParent(gridContainer, false);
-
-                    RectTransform lineRect = lineObj.AddComponent<RectTransform>();
-                    lineRect.sizeDelta = new Vector2(gridCount * gridSize, 1); // Full grid width, 1px height
-                    lineRect.anchorMin = new Vector2(0.5f, 0.5f);
-                    lineRect.anchorMax = new Vector2(0.5f, 0.5f);
-                    lineRect.pivot = new Vector2(0.5f, 0.5f);
-
-                    float yPos = (i - gridCount / 2) * gridSize;
-                    lineRect.anchoredPosition = new Vector2(0, yPos);
-
-                    UnityEngine.UI.Image lineImage = lineObj.AddComponent<UnityEngine.UI.Image>();
-                    lineImage.color = gridColor;
-                }
-
-                // Create vertical grid lines
-                for (int i = 0; i <= gridCount; i++)
-                {
-                    GameObject lineObj = new GameObject($"VLine_{i}");
-                    lineObj.transform.SetParent(gridContainer, false);
-
-                    RectTransform lineRect = lineObj.AddComponent<RectTransform>();
-                    lineRect.sizeDelta = new Vector2(1, gridCount * gridSize); // 1px width, full grid height
-                    lineRect.anchorMin = new Vector2(0.5f, 0.5f);
-                    lineRect.anchorMax = new Vector2(0.5f, 0.5f);
-                    lineRect.pivot = new Vector2(0.5f, 0.5f);
-
-                    float xPos = (i - gridCount / 2) * gridSize;
-                    lineRect.anchoredPosition = new Vector2(xPos, 0);
-
-                    UnityEngine.UI.Image lineImage = lineObj.AddComponent<UnityEngine.UI.Image>();
-                    lineImage.color = gridColor;
-                }
-
-                MelonLogger.Msg("Visual grid created successfully");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Error($"Error creating visual grid: {ex.Message}");
-            }
-        }
-
-        // Update the minimap every frame.
-        public override void OnUpdate()
-        {
-            try
-            {
-                // Toggle minimap display with F3
-                if (Input.GetKeyDown(KeyCode.F3) && minimapObject != null)
-                {
-                    isEnabled = !isEnabled;
-                    minimapObject.SetActive(isEnabled);
-                    MelonLogger.Msg("Minimap " + (isEnabled ? "Enabled" : "Disabled"));
-                }
-
-                // Update minimap position based on player's position, smoothing movement.
-                if (isEnabled && playerObject != null && mapContentObject != null)
-                {
-                    Vector3 playerPos = playerObject.transform.position;
-
-                    float mapX = -playerPos.x * mapScale;
-                    float mapY = -playerPos.z * mapScale;
-
-                    RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
-                    if (contentRect != null)
+                    GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+                    if (contentObj != null)
                     {
-                        Vector2 targetPos = new Vector2(mapX, mapY) + mapOffset;
-                        contentRect.anchoredPosition = Vector2.Lerp(contentRect.anchoredPosition, targetPos, Time.deltaTime * smoothingFactor);
+                        Transform playerPoI = contentObj.transform.Find("PlayerPoI(Clone)");
+                        if (playerPoI != null)
+                        {
+                            Transform realIcon = playerPoI.Find("IconContainer");
+                            if (realIcon != null)
+                            {
+                                GameObject newMarker = UnityEngine.Object.Instantiate(realIcon.gameObject);
+                                newMarker.name = "PlayerMarker";
+                                newMarker.transform.SetParent(currentMarker.transform.parent, false);
+                                RectTransform newRect = newMarker.GetComponent<RectTransform>();
+                                if (newRect != null)
+                                {
+                                    newRect.anchoredPosition = Vector2.zero;
+                                    newRect.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+                                }
+                                // Remove the arrow
+                                Transform arrowImage = newMarker.transform.Find("Image");
+                                if (arrowImage != null)
+                                {
+                                    MelonLogger.Msg("Removing arrow from player marker");
+                                    UnityEngine.Object.Destroy(arrowImage.gameObject);
+                                }
+                                UnityEngine.Object.Destroy(currentMarker);
+                                MelonLogger.Msg("Replaced fallback player marker with real player icon.");
+                            }
+                        }
                     }
                 }
             }
-            catch (Exception ex)
+
+            // Now add static markers using the PropertyPoI
+            GameObject contentObj2 = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+            if (contentObj2 != null)
             {
-                MelonLogger.Error($"Error in OnUpdate: {ex.Message}");
+                Transform propertyPoI = contentObj2.transform.Find("PropertyPoI(Clone)");
+                if (propertyPoI != null)
+                {
+                    Transform iconContainer = propertyPoI.Find("IconContainer");
+                    if (iconContainer != null)
+                    {
+                        AddDefaultMarkers();
+                    }
+                }
             }
         }
 
-        // Overloaded helper method that creates a static marker with a specified color.
-        private void AddStaticMarker(Vector3 worldPos, Color markerColor)
-        {
-            if (mapContentObject == null)
-            {
-                MelonLogger.Warning("Map content object is null; cannot add marker.");
-                return;
-            }
-
-            GameObject marker = new GameObject("StaticMarker");
-            marker.transform.SetParent(mapContentObject.transform, false);
-
-            RectTransform markerRect = marker.AddComponent<RectTransform>();
-            markerRect.sizeDelta = new Vector2(5f, 5f);
-
-            // Calculate the marker's anchored position in the map content.
-            markerRect.anchoredPosition = new Vector2(worldPos.x * mapScale, worldPos.z * mapScale);
-
-            UnityEngine.UI.Image markerImage = marker.AddComponent<UnityEngine.UI.Image>();
-            markerImage.color = markerColor;
-
-            MelonLogger.Msg("Static marker added at mapped position: " + markerRect.anchoredPosition);
-        }
-        private void AddDefaultMarkers()
-        {
-            // White markers (using Color.white)
-            AddStaticMarker(new Vector3(-67.17f, -3.03f, 138.31f), Color.white);
-            AddStaticMarker(new Vector3(-79.88f, -2.26f, 85.13f), Color.white);
-            AddStaticMarker(new Vector3(-179.99f, -3.03f, 113.69f), Color.white);
-
-            // Red markers (using Color.red)
-            AddStaticMarker(new Vector3(-68.44f, -1.49f, 35.37f), Color.red);
-            AddStaticMarker(new Vector3(-34.55f, -1.54f, 27.06f), Color.red);
-            AddStaticMarker(new Vector3(70.33f, 1.37f, -10.01f), Color.red);
-        }
-
-        // Create the minimap UI and add default markers.
         private void CreateMinimapUI()
         {
             try
             {
-                // Create a minimap container
+                // Create the minimap container and mark it as DontDestroyOnLoad.
                 minimapObject = new GameObject("MinimapContainer");
                 UnityEngine.Object.DontDestroyOnLoad(minimapObject);
 
-                // Create a canvas for UI elements
+                // Create a canvas for the minimap UI.
                 GameObject canvasObj = new GameObject("MinimapCanvas");
                 canvasObj.transform.SetParent(minimapObject.transform, false);
                 Canvas canvas = canvasObj.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 9999;
 
-                // Add a UI scaler
-                UnityEngine.UI.CanvasScaler scaler = canvasObj.AddComponent<UnityEngine.UI.CanvasScaler>();
-                scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                // Add a CanvasScaler.
+                CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
                 scaler.referenceResolution = new Vector2(1920, 1080);
 
-                // Add a raycaster for UI interaction
-                canvasObj.AddComponent<UnityEngine.UI.GraphicRaycaster>();
+                // Add a GraphicRaycaster.
+                canvasObj.AddComponent<GraphicRaycaster>();
 
-                // Create a minimap frame
+                // Create the minimap frame.
                 GameObject frameObj = new GameObject("MinimapFrame");
                 frameObj.transform.SetParent(canvasObj.transform, false);
                 RectTransform frameRect = frameObj.AddComponent<RectTransform>();
                 frameRect.sizeDelta = new Vector2(150, 150);
-                frameRect.anchorMin = new Vector2(1, 0);
-                frameRect.anchorMax = new Vector2(1, 0);
-                frameRect.pivot = new Vector2(1, 0);
-                frameRect.anchoredPosition = new Vector2(-20, 20);
+                // Set anchors and pivot to top-right.
+                frameRect.anchorMin = new Vector2(1, 1);
+                frameRect.anchorMax = new Vector2(1, 1);
+                frameRect.pivot = new Vector2(1, 1);
+                // Offset from top-right (negative X moves left, negative Y moves down)
+                frameRect.anchoredPosition = new Vector2(-20, -20);
+                Image frameImage = frameObj.AddComponent<Image>();
+                frameImage.color = new Color(0.1f, 0.1f, 0.1f, 0f);
 
-                // Add frame background and border
-                UnityEngine.UI.Image frameImage = frameObj.AddComponent<UnityEngine.UI.Image>();
-                frameImage.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
-
-                // Add a mask to clip the map content
+                // Create a mask to clip the map content.
                 GameObject maskObj = new GameObject("MinimapMask");
                 maskObj.transform.SetParent(frameObj.transform, false);
                 RectTransform maskRect = maskObj.AddComponent<RectTransform>();
@@ -437,26 +374,44 @@ namespace MinimapMod
                 maskRect.anchorMax = new Vector2(0.5f, 0.5f);
                 maskRect.pivot = new Vector2(0.5f, 0.5f);
                 maskRect.anchoredPosition = Vector2.zero;
+                Mask mask = maskObj.AddComponent<Mask>();
+                mask.showMaskGraphic = false;
+                Image maskImage = maskObj.AddComponent<Image>();
+                // Instead of using an external resource, create a circular sprite at runtime.
+                Sprite circleSprite = CreateCircleSprite(140, Color.white);
+                maskImage.sprite = circleSprite;
+                maskImage.type = Image.Type.Sliced; // Sliced works well with masks.
+                maskImage.color = Color.white;
 
-                // Add a mask component
-                UnityEngine.UI.Mask mask = maskObj.AddComponent<UnityEngine.UI.Mask>();
-                mask.showMaskGraphic = true;
+                // Create a border for the minimap by adding an Image behind the mask.
+                GameObject borderObj = new GameObject("MinimapBorder");
+                borderObj.transform.SetParent(frameObj.transform, false);
+                RectTransform borderRect = borderObj.AddComponent<RectTransform>();
+                // Set the border to be slightly larger than the mask.
+                borderRect.sizeDelta = new Vector2(150, 150);
+                borderRect.anchorMin = new Vector2(0.5f, 0.5f);
+                borderRect.anchorMax = new Vector2(0.5f, 0.5f);
+                borderRect.pivot = new Vector2(0.5f, 0.5f);
+                borderRect.anchoredPosition = Vector2.zero;
+                borderObj.transform.SetSiblingIndex(0);
+                Image borderImage = borderObj.AddComponent<Image>();
+                // Use a circular sprite for the border (you can use the same CreateCircleSprite function)
+                Sprite BorderCircleSprite = CreateCircleSprite(150, Color.black);
+                borderImage.sprite = BorderCircleSprite;
+                borderImage.type = Image.Type.Sliced;
+                borderImage.color = Color.black;
 
-                // Add a background for the mask
-                UnityEngine.UI.Image maskImage = maskObj.AddComponent<UnityEngine.UI.Image>();
-                maskImage.color = bgColor;
-
-                // Add map content container
+                // Create the map content container.
                 mapContentObject = new GameObject("MapContent");
                 mapContentObject.transform.SetParent(maskObj.transform, false);
                 RectTransform contentRect = mapContentObject.AddComponent<RectTransform>();
-                contentRect.sizeDelta = new Vector2(500, 500); // Make larger to contain the map
+                contentRect.sizeDelta = new Vector2(500, 500); // Adjust as needed.
                 contentRect.anchorMin = new Vector2(0.5f, 0.5f);
                 contentRect.anchorMax = new Vector2(0.5f, 0.5f);
                 contentRect.pivot = new Vector2(0.5f, 0.5f);
                 contentRect.anchoredPosition = Vector2.zero;
 
-                // Create a container for the grid
+                // Create a container for the grid overlay.
                 GameObject gridObj = new GameObject("GridContainer");
                 gridObj.transform.SetParent(mapContentObject.transform, false);
                 gridContainer = gridObj.AddComponent<RectTransform>();
@@ -466,28 +421,298 @@ namespace MinimapMod
                 gridContainer.pivot = new Vector2(0.5f, 0.5f);
                 gridContainer.anchoredPosition = Vector2.zero;
 
-                // Add player marker at center
-                GameObject markerObj = new GameObject("PlayerMarker");
-                markerObj.transform.SetParent(maskObj.transform, false);
-                RectTransform markerRect = markerObj.AddComponent<RectTransform>();
-                markerRect.sizeDelta = new Vector2(5f, 5f); // Adjust as needed
-                markerRect.anchorMin = new Vector2(0.5f, 0.5f);
-                markerRect.anchorMax = new Vector2(0.5f, 0.5f);
-                markerRect.pivot = new Vector2(0.5f, 0.5f);
-                markerRect.anchoredPosition = Vector2.zero;
+                // Create the time display as a child of the minimap frame.
+                CreateMinimapTimeDisplay(frameRect);
 
-                UnityEngine.UI.Image markerImage = markerObj.AddComponent<UnityEngine.UI.Image>();
-                markerImage.color = new Color(0.2f, 0.6f, 1f, 1f);
+                // --- PLAYER ICON SETUP ---
+                // Look for the Content object, then "PlayerPoI(Clone)", then "IconContainer".
+                GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+                if (contentObj != null)
+                {
+                    Transform playerPoI = contentObj.transform.Find("PlayerPoI(Clone)");
+                    if (playerPoI != null)
+                    {
+                        Transform iconContainer = playerPoI.Find("IconContainer");
+                        if (iconContainer != null)
+                        {
+                            // Clone the IconContainer as the player marker.
+                            GameObject playerIcon = UnityEngine.Object.Instantiate(iconContainer.gameObject);
+                            playerIcon.name = "PlayerMarker";
+                            playerIcon.transform.SetParent(maskObj.transform, false);
+                            RectTransform iconRect = playerIcon.GetComponent<RectTransform>();
+                            if (iconRect != null)
+                            {
+                                iconRect.anchoredPosition = Vector2.zero;
+                                iconRect.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+                            }
+                            MelonLogger.Msg("Player icon cloned successfully.");
+                        }
+                        else
+                        {
+                            MelonLogger.Msg("IconContainer not found under PlayerPoI(Clone). Using fallback marker.");
+                            CreateFallbackPlayerMarker(maskObj);
+                        }
+                    }
+                    else
+                    {
+                        MelonLogger.Msg("PlayerPoI(Clone) not found under Content. Using fallback marker.");
+                        CreateFallbackPlayerMarker(maskObj);
+                    }
+                }
+                else
+                {
+                    MelonLogger.Msg("Content object not found. Using fallback marker.");
+                    CreateFallbackPlayerMarker(maskObj);
+                }
+                // --- END PLAYER ICON SETUP ---
 
-                MelonLogger.Msg("Minimap UI created successfully");
-
-                // Add the default static markers to the minimap
-                AddDefaultMarkers();
+                MelonLogger.Msg("Minimap UI created successfully.");
+                // (Optional) Call AddDefaultMarkers() if you have static markers to add.
             }
             catch (Exception ex)
             {
                 MelonLogger.Error($"Error creating minimap UI: {ex.Message}");
             }
+        }
+
+        private void CreateVisualGrid()
+        {
+            try
+            {
+                if (gridContainer == null)
+                    return;
+                int gridCount = 10;
+                // Horizontal lines
+                for (int i = 0; i <= gridCount; i++)
+                {
+                    GameObject lineObj = new GameObject($"HLine_{i}");
+                    lineObj.transform.SetParent(gridContainer, false);
+                    RectTransform lineRect = lineObj.AddComponent<RectTransform>();
+                    lineRect.sizeDelta = new Vector2(gridCount * gridSize, 1);
+                    lineRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    lineRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    lineRect.pivot = new Vector2(0.5f, 0.5f);
+                    float yPos = (i - gridCount / 2) * gridSize;
+                    lineRect.anchoredPosition = new Vector2(0, yPos);
+                    Image lineImage = lineObj.AddComponent<Image>();
+                    lineImage.color = gridColor;
+                }
+                // Vertical lines
+                for (int i = 0; i <= gridCount; i++)
+                {
+                    GameObject lineObj = new GameObject($"VLine_{i}");
+                    lineObj.transform.SetParent(gridContainer, false);
+                    RectTransform lineRect = lineObj.AddComponent<RectTransform>();
+                    lineRect.sizeDelta = new Vector2(1, gridCount * gridSize);
+                    lineRect.anchorMin = new Vector2(0.5f, 0.5f);
+                    lineRect.anchorMax = new Vector2(0.5f, 0.5f);
+                    lineRect.pivot = new Vector2(0.5f, 0.5f);
+                    float xPos = (i - gridCount / 2) * gridSize;
+                    lineRect.anchoredPosition = new Vector2(xPos, 0);
+                    Image lineImage = lineObj.AddComponent<Image>();
+                    lineImage.color = gridColor;
+                }
+                MelonLogger.Msg("Visual grid created successfully");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Error creating visual grid: {ex.Message}");
+            }
+        }
+
+        public override void OnUpdate()
+        {
+            try
+            {
+                if (Input.GetKeyDown(KeyCode.F3) && minimapObject != null)
+                {
+                    isEnabled = !isEnabled;
+                    minimapObject.SetActive(isEnabled);
+                    MelonLogger.Msg("Minimap " + (isEnabled ? "Enabled" : "Disabled"));
+                }
+                if (isEnabled && playerObject != null && mapContentObject != null)
+                {
+                    Vector3 playerPos = playerObject.transform.position;
+                    float mapX = -playerPos.x * mapScale;
+                    float mapY = -playerPos.z * mapScale;
+                    RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
+                    if (contentRect != null)
+                    {
+                        Vector2 targetPos = new Vector2(mapX, mapY) + mapOffset;
+                        contentRect.anchoredPosition = Vector2.Lerp(contentRect.anchoredPosition, targetPos, Time.deltaTime * smoothingFactor);
+                        UpdatePlayerDirectionIndicator();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Error in OnUpdate: {ex.Message}");
+            }
+        }
+
+        private System.Collections.IEnumerator UpdateMinimapTimeCoroutine()
+        {
+            while (true)
+            {
+                UpdateMinimapTime();
+                yield return new WaitForSeconds(1f);
+            }
+        }
+
+        private void UpdatePlayerDirectionIndicator()
+        {
+            GameObject playerMarker = GameObject.Find("PlayerMarker");
+            if (playerMarker == null || playerObject == null)
+                return;
+
+            // If we haven't cached the direction indicator yet, try to find it.
+            if (cachedDirectionIndicator == null)
+            {
+                Transform found = playerMarker.transform.Find("DirectionIndicator");
+                if (found != null)
+                {
+                    cachedDirectionIndicator = found as RectTransform;
+                }
+                else
+                {
+                    // Create it once if it doesn't exist.
+                    GameObject directionObj = new GameObject("DirectionIndicator");
+                    directionObj.transform.SetParent(playerMarker.transform, false);
+                    cachedDirectionIndicator = directionObj.AddComponent<RectTransform>();
+                    cachedDirectionIndicator.sizeDelta = new Vector2(6f, 6f);
+                    Image indicatorImage = directionObj.AddComponent<Image>();
+                    indicatorImage.color = Color.white;
+                }
+            }
+
+            // Now update the cached direction indicator.
+            cachedDirectionIndicator.pivot = new Vector2(0.5f, 0.5f);
+            float orbitDistance = 15f;
+            float playerAngle = playerObject.transform.rotation.eulerAngles.y;
+            float rad = (90f - playerAngle) * 0.0174532924f;
+            Vector2 offset = new Vector2(
+                orbitDistance * Mathf.Cos(rad),
+                orbitDistance * Mathf.Sin(rad)
+            );
+            cachedDirectionIndicator.anchoredPosition = offset;
+        }
+
+        private Sprite CreateCircleSprite(int diameter, Color color)
+        {
+            Texture2D tex = new Texture2D(diameter, diameter, TextureFormat.ARGB32, false);
+            // Make texture fully transparent first.
+            Color transparent = new Color(0, 0, 0, 0);
+            for (int y = 0; y < diameter; y++)
+            {
+                for (int x = 0; x < diameter; x++)
+                {
+                    tex.SetPixel(x, y, transparent);
+                }
+            }
+            // Draw the circle.
+            int radius = diameter / 2;
+            Vector2 center = new Vector2(radius, radius);
+            for (int y = 0; y < diameter; y++)
+            {
+                for (int x = 0; x < diameter; x++)
+                {
+                    if (Vector2.Distance(new Vector2(x, y), center) <= radius)
+                    {
+                        tex.SetPixel(x, y, color);
+                    }
+                }
+            }
+            tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, diameter, diameter), new Vector2(0.5f, 0.5f));
+        }
+
+        private void AddWhiteStaticMarker(Vector3 worldPos)
+        {
+            if (mapContentObject == null)
+            {
+                MelonLogger.Warning("Map content object is null; cannot add marker.");
+                return;
+            }
+
+            // Locate the real content that holds PropertyPoI.
+            GameObject realContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+            if (realContent != null)
+            {
+                // Find the PropertyPoI(Clone) and then its child IconContainer.
+                Transform propertyPoI = realContent.transform.Find("PropertyPoI(Clone)");
+                if (propertyPoI != null)
+                {
+                    Transform iconContainer = propertyPoI.Find("IconContainer");
+                    if (iconContainer != null)
+                    {
+                        // Clone the IconContainer to use as the marker.
+                        GameObject marker = UnityEngine.Object.Instantiate(iconContainer.gameObject);
+                        marker.name = "StaticMarker_White";
+                        marker.transform.SetParent(mapContentObject.transform, false);
+                        RectTransform markerRect = marker.GetComponent<RectTransform>();
+                        if (markerRect != null)
+                        {
+                            // Adjust scale if necessary.
+                            markerRect.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+                            // Compute marker position in the minimap.
+                            float posX = worldPos.x * mapScale;
+                            float posY = worldPos.z * mapScale;
+                            markerRect.anchoredPosition = new Vector2(posX, posY);
+                            MelonLogger.Msg("White static marker added at mapped position: " + markerRect.anchoredPosition);
+                            return;
+                        }
+                    }
+                }
+            }
+            MelonLogger.Msg("White static marker asset not found. No marker added.");
+        }
+
+        private void AddRedStaticMarker(Vector3 worldPos)
+        {
+            if (mapContentObject == null)
+            {
+                MelonLogger.Warning("Map content object is null; cannot add marker.");
+                return;
+            }
+            GameObject marker = new GameObject("StaticMarker_Red");
+            marker.transform.SetParent(mapContentObject.transform, false);
+            RectTransform markerRect = marker.AddComponent<RectTransform>();
+            markerRect.sizeDelta = new Vector2(5f, 5f);
+            // Compute position using world coordinates (multiplied by mapScale)
+            float posX = worldPos.x * mapScale;
+            float posY = worldPos.z * mapScale;
+            markerRect.anchoredPosition = new Vector2(posX, posY);
+            Image markerImage = marker.AddComponent<Image>();
+            markerImage.color = Color.red;
+            MelonLogger.Msg("Red static marker added at mapped position: " + markerRect.anchoredPosition);
+        }
+
+        private void AddDefaultMarkers()
+        {
+            // White markers using the in-game asset.
+            AddWhiteStaticMarker(new Vector3(-67.17f, -3.03f, 138.31f));
+            AddWhiteStaticMarker(new Vector3(-79.88f, -2.26f, 85.13f));
+            AddWhiteStaticMarker(new Vector3(-179.99f, -3.03f, 113.69f));
+
+            // Red markers using a simple red square.
+            AddRedStaticMarker(new Vector3(-68.44f, -1.49f, 35.37f));
+            AddRedStaticMarker(new Vector3(-34.55f, -1.54f, 27.06f));
+            AddRedStaticMarker(new Vector3(70.33f, 1.37f, -10.01f));
+        }
+
+        private void CreateFallbackPlayerMarker(GameObject parent)
+        {
+            GameObject markerObj = new GameObject("PlayerMarker");
+            markerObj.transform.SetParent(parent.transform, false);
+            RectTransform markerRect = markerObj.AddComponent<RectTransform>();
+            markerRect.sizeDelta = new Vector2(5f, 5f);
+            markerRect.anchorMin = new Vector2(0.5f, 0.5f);
+            markerRect.anchorMax = new Vector2(0.5f, 0.5f);
+            markerRect.pivot = new Vector2(0.5f, 0.5f);
+            markerRect.anchoredPosition = Vector2.zero;
+            Image markerImage = markerObj.AddComponent<Image>();
+            markerImage.color = new Color(0.2f, 0.6f, 1f, 1f);
+            MelonLogger.Msg("Fallback player marker created.");
         }
     }
 }
