@@ -14,6 +14,10 @@ namespace MinimapMod
         private static bool isInitializing = false;
         private static bool isEnabled = true;
         private RectTransform cachedDirectionIndicator;
+        private GameObject cachedPlayerMarker;
+        private Text cachedGameTimeText;  // Cache for the game time text
+        private GameObject cachedMapContent;  // Cache for the map content object
+        private Transform cachedPropertyPoI;  // Cache for the PropertyPoI transform
 
         // References to track game objects
         private Text minimapTimeText;
@@ -70,15 +74,19 @@ namespace MinimapMod
 
         private void UpdateMinimapTime()
         {
-            // Locate the in-game time text.
-            GameObject timeObj = GameObject.Find("GameplayMenu/Phone/phone/HomeScreen/InfoBar/Time");
-            if (timeObj != null)
+            // If we haven't cached the time text yet, try to find it
+            if (cachedGameTimeText == null)
             {
-                Text gameTimeText = timeObj.GetComponent<Text>();
-                if (gameTimeText != null && minimapTimeText != null)
+                GameObject timeObj = GameObject.Find("GameplayMenu/Phone/phone/HomeScreen/InfoBar/Time");
+                if (timeObj != null)
                 {
-                    minimapTimeText.text = gameTimeText.text;
+                    cachedGameTimeText = timeObj.GetComponent<Text>();
                 }
+            }
+
+            if (cachedGameTimeText != null && minimapTimeText != null)
+            {
+                minimapTimeText.text = cachedGameTimeText.text;
             }
         }
 
@@ -273,16 +281,20 @@ namespace MinimapMod
             CreateVisualGrid();
 
             // Optional: Replace fallback player marker if real asset is available now.
-            GameObject currentMarker = GameObject.Find("PlayerMarker");
-            if (currentMarker != null)
+            if (cachedPlayerMarker != null)
             {
-                Image markerImage = currentMarker.GetComponent<Image>();
+                Image markerImage = cachedPlayerMarker.GetComponent<Image>();
                 if (markerImage != null && markerImage.color.Equals(new Color(0.2f, 0.6f, 1f, 1f)))
                 {
-                    GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
-                    if (contentObj != null)
+                    // If we haven't cached the map content yet, try to find it
+                    if (cachedMapContent == null)
                     {
-                        Transform playerPoI = contentObj.transform.Find("PlayerPoI(Clone)");
+                        cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+                    }
+
+                    if (cachedMapContent != null)
+                    {
+                        Transform playerPoI = cachedMapContent.transform.Find("PlayerPoI(Clone)");
                         if (playerPoI != null)
                         {
                             Transform realIcon = playerPoI.Find("IconContainer");
@@ -290,7 +302,7 @@ namespace MinimapMod
                             {
                                 GameObject newMarker = UnityEngine.Object.Instantiate(realIcon.gameObject);
                                 newMarker.name = "PlayerMarker";
-                                newMarker.transform.SetParent(currentMarker.transform.parent, false);
+                                newMarker.transform.SetParent(cachedPlayerMarker.transform.parent, false);
                                 RectTransform newRect = newMarker.GetComponent<RectTransform>();
                                 if (newRect != null)
                                 {
@@ -304,7 +316,8 @@ namespace MinimapMod
                                     MelonLogger.Msg("Removing arrow from player marker");
                                     UnityEngine.Object.Destroy(arrowImage.gameObject);
                                 }
-                                UnityEngine.Object.Destroy(currentMarker);
+                                UnityEngine.Object.Destroy(cachedPlayerMarker);
+                                cachedPlayerMarker = newMarker;
                                 MelonLogger.Msg("Replaced fallback player marker with real player icon.");
                             }
                         }
@@ -313,13 +326,21 @@ namespace MinimapMod
             }
 
             // Now add static markers using the PropertyPoI
-            GameObject contentObj2 = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
-            if (contentObj2 != null)
+            if (cachedMapContent == null)
             {
-                Transform propertyPoI = contentObj2.transform.Find("PropertyPoI(Clone)");
-                if (propertyPoI != null)
+                cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+            }
+
+            if (cachedMapContent != null)
+            {
+                if (cachedPropertyPoI == null)
                 {
-                    Transform iconContainer = propertyPoI.Find("IconContainer");
+                    cachedPropertyPoI = cachedMapContent.transform.Find("PropertyPoI(Clone)");
+                }
+
+                if (cachedPropertyPoI != null)
+                {
+                    Transform iconContainer = cachedPropertyPoI.Find("IconContainer");
                     if (iconContainer != null)
                     {
                         AddDefaultMarkers();
@@ -436,10 +457,10 @@ namespace MinimapMod
                         if (iconContainer != null)
                         {
                             // Clone the IconContainer as the player marker.
-                            GameObject playerIcon = UnityEngine.Object.Instantiate(iconContainer.gameObject);
-                            playerIcon.name = "PlayerMarker";
-                            playerIcon.transform.SetParent(maskObj.transform, false);
-                            RectTransform iconRect = playerIcon.GetComponent<RectTransform>();
+                            cachedPlayerMarker = UnityEngine.Object.Instantiate(iconContainer.gameObject);
+                            cachedPlayerMarker.name = "PlayerMarker";
+                            cachedPlayerMarker.transform.SetParent(maskObj.transform, false);
+                            RectTransform iconRect = cachedPlayerMarker.GetComponent<RectTransform>();
                             if (iconRect != null)
                             {
                                 iconRect.anchoredPosition = Vector2.zero;
@@ -561,14 +582,13 @@ namespace MinimapMod
 
         private void UpdatePlayerDirectionIndicator()
         {
-            GameObject playerMarker = GameObject.Find("PlayerMarker");
-            if (playerMarker == null || playerObject == null)
+            if (cachedPlayerMarker == null || playerObject == null)
                 return;
 
             // If we haven't cached the direction indicator yet, try to find it.
             if (cachedDirectionIndicator == null)
             {
-                Transform found = playerMarker.transform.Find("DirectionIndicator");
+                Transform found = cachedPlayerMarker.transform.Find("DirectionIndicator");
                 if (found != null)
                 {
                     cachedDirectionIndicator = found as RectTransform;
@@ -577,7 +597,7 @@ namespace MinimapMod
                 {
                     // Create it once if it doesn't exist.
                     GameObject directionObj = new GameObject("DirectionIndicator");
-                    directionObj.transform.SetParent(playerMarker.transform, false);
+                    directionObj.transform.SetParent(cachedPlayerMarker.transform, false);
                     cachedDirectionIndicator = directionObj.AddComponent<RectTransform>();
                     cachedDirectionIndicator.sizeDelta = new Vector2(6f, 6f);
                     Image indicatorImage = directionObj.AddComponent<Image>();
@@ -634,15 +654,23 @@ namespace MinimapMod
                 return;
             }
 
-            // Locate the real content that holds PropertyPoI.
-            GameObject realContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
-            if (realContent != null)
+            // If we haven't cached the map content yet, try to find it
+            if (cachedMapContent == null)
             {
-                // Find the PropertyPoI(Clone) and then its child IconContainer.
-                Transform propertyPoI = realContent.transform.Find("PropertyPoI(Clone)");
-                if (propertyPoI != null)
+                cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+            }
+
+            if (cachedMapContent != null)
+            {
+                // If we haven't cached the PropertyPoI yet, try to find it
+                if (cachedPropertyPoI == null)
                 {
-                    Transform iconContainer = propertyPoI.Find("IconContainer");
+                    cachedPropertyPoI = cachedMapContent.transform.Find("PropertyPoI(Clone)");
+                }
+
+                if (cachedPropertyPoI != null)
+                {
+                    Transform iconContainer = cachedPropertyPoI.Find("IconContainer");
                     if (iconContainer != null)
                     {
                         // Clone the IconContainer to use as the marker.
@@ -702,15 +730,15 @@ namespace MinimapMod
 
         private void CreateFallbackPlayerMarker(GameObject parent)
         {
-            GameObject markerObj = new GameObject("PlayerMarker");
-            markerObj.transform.SetParent(parent.transform, false);
-            RectTransform markerRect = markerObj.AddComponent<RectTransform>();
+            cachedPlayerMarker = new GameObject("PlayerMarker");
+            cachedPlayerMarker.transform.SetParent(parent.transform, false);
+            RectTransform markerRect = cachedPlayerMarker.AddComponent<RectTransform>();
             markerRect.sizeDelta = new Vector2(5f, 5f);
             markerRect.anchorMin = new Vector2(0.5f, 0.5f);
             markerRect.anchorMax = new Vector2(0.5f, 0.5f);
             markerRect.pivot = new Vector2(0.5f, 0.5f);
             markerRect.anchoredPosition = Vector2.zero;
-            Image markerImage = markerObj.AddComponent<Image>();
+            Image markerImage = cachedPlayerMarker.AddComponent<Image>();
             markerImage.color = new Color(0.2f, 0.6f, 1f, 1f);
             MelonLogger.Msg("Fallback player marker created.");
         }
