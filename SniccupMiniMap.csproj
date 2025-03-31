@@ -50,6 +50,10 @@
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>C:\Users\secre\OneDrive\Desktop\schedule\DummyDll\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.IMGUIModule, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\schedule\DummyDll\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>C:\Users\secre\OneDrive\Desktop\schedule\DummyDll\UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
