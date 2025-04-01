@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,6 +7,18 @@ namespace MinimapMod
 {
     public class MainMod : MelonMod
     {
+
+        private bool guiVisible = false;
+        private bool minimapEnabled = true;
+        private bool timeBarEnabled = true;
+
+        private Rect minimapToggleRect = new Rect(Screen.width - 170, 260, 150, 25);
+        private Rect timeToggleRect = new Rect(Screen.width - 170, 290, 150, 25);
+        private Rect guiBackgroundRect = new Rect(Screen.width - 175, 250, 160, 70);
+        private GameObject minimapDisplayObject; // Holds the map display (mask, border, map content, grid)
+        private RectTransform minimapTimeContainer; // Reference to the time container rect transform
+
+
         // Map positioning variables
         private static float mapScale = 1.2487098f;
         private static Vector2 mapOffset = new Vector2(10f, 0f);
@@ -36,20 +48,91 @@ namespace MinimapMod
             return new Vector2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
         }
 
+        public override void OnGUI()
+        {
+            if (!guiVisible)
+                return;
+
+            GUI.color = Color.gray; // Solid gray background
+            GUI.Box(guiBackgroundRect, "");
+
+            // Toggle for Minimap (map display only)
+            DrawToggle(minimapToggleRect, "Minimap", ref minimapEnabled, () =>
+            {
+                if (minimapDisplayObject != null)
+                    minimapDisplayObject.SetActive(minimapEnabled);
+
+                if (minimapTimeContainer != null)
+                {
+                    if (minimapEnabled)
+                    {
+                        // When minimap is enabled, position time container at the bottom center.
+                        minimapTimeContainer.anchorMin = new Vector2(0.5f, 0);
+                        minimapTimeContainer.anchorMax = new Vector2(0.5f, 0);
+                        minimapTimeContainer.pivot = new Vector2(0.5f, 1);
+                        minimapTimeContainer.anchoredPosition = new Vector2(0, -10);
+                    }
+                    else
+                    {
+                        // When minimap is hidden, move time container to the top right.
+                        minimapTimeContainer.anchorMin = new Vector2(1, 1);
+                        minimapTimeContainer.anchorMax = new Vector2(1, 1);
+                        minimapTimeContainer.pivot = new Vector2(1, 1);
+                        minimapTimeContainer.anchoredPosition = new Vector2(0, 0);
+                    }
+                }
+            });
+
+            // Toggle for Time display only.
+            DrawToggle(timeToggleRect, "Time", ref timeBarEnabled, () =>
+            {
+                if (minimapTimeContainer != null)
+                    minimapTimeContainer.gameObject.SetActive(timeBarEnabled);
+            });
+        }
+
+
+
+        private void DrawToggle(Rect position, string label, ref bool state, Action onToggle)
+        {
+            // Draw label
+            GUI.color = Color.white;
+            GUI.Label(new Rect(position.x + 50, position.y, position.width - 50, position.height), label);
+
+            // Switch background
+            Rect switchBg = new Rect(position.x + 5, position.y + 3, 40, 18);
+            GUI.color = state ? Color.green : Color.gray;
+            GUI.Box(switchBg, "");
+
+            // Handle
+            Rect handle = new Rect(state ? switchBg.x + 22 : switchBg.x + 2, switchBg.y + 2, 14, 14);
+            GUI.color = Color.white;
+            GUI.Box(handle, "");
+
+            // Invisible button overlay
+            if (GUI.Button(position, new GUIContent(""), GUIStyle.none))
+            {
+                state = !state;
+                onToggle.Invoke();
+            }
+        }
+
         private void CreateMinimapTimeDisplay(Transform parent)
         {
             // Create a container for the time display.
             GameObject timeContainer = new GameObject("MinimapTimeContainer");
             timeContainer.transform.SetParent(parent, false);
             RectTransform timeRect = timeContainer.AddComponent<RectTransform>();
-            // Set size of the container.
-            timeRect.sizeDelta = new Vector2(100, 30);
-            // Anchor it to the bottom center of the parent (e.g., the minimap frame).
+            // Increase sizeDelta to accommodate two lines of text.
+            timeRect.sizeDelta = new Vector2(100, 50);
+            // Anchor it to the bottom center of the parent.
             timeRect.anchorMin = new Vector2(0.5f, 0);
             timeRect.anchorMax = new Vector2(0.5f, 0);
             timeRect.pivot = new Vector2(0.5f, 1);
-            // Position it slightly below the parent's bottom edge.
+            // Set initial position (when minimap is active, it sits lower).
             timeRect.anchoredPosition = new Vector2(0, -10);
+            // Save reference for later repositioning.
+            minimapTimeContainer = timeRect;
 
             // Add a semi-transparent grey background.
             Image bgImage = timeContainer.AddComponent<Image>();
@@ -68,13 +151,16 @@ namespace MinimapMod
             minimapTimeText.text = "Time";
             minimapTimeText.alignment = TextAnchor.MiddleCenter;
             minimapTimeText.color = Color.white;
-            // Use the built-in Arial font.
             minimapTimeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            // Allow multiline display.
+            minimapTimeText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            minimapTimeText.verticalOverflow = VerticalWrapMode.Overflow;
         }
+
 
         private void UpdateMinimapTime()
         {
-            // If we haven't cached the time text yet, try to find it
+            // If we haven't cached the time text yet, try to find it.
             if (cachedGameTimeText == null)
             {
                 GameObject timeObj = GameObject.Find("GameplayMenu/Phone/phone/HomeScreen/InfoBar/Time");
@@ -86,9 +172,23 @@ namespace MinimapMod
 
             if (cachedGameTimeText != null && minimapTimeText != null)
             {
-                minimapTimeText.text = cachedGameTimeText.text;
+                string originalText = cachedGameTimeText.text; // Expected format: "10:20 AM Monday"
+                string[] tokens = originalText.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length >= 3)
+                {
+                    // Assume the time is the first two tokens and the day is the last token.
+                    string timePart = tokens[0] + " " + tokens[1];
+                    string dayPart = tokens[tokens.Length - 1];
+                    minimapTimeText.text = dayPart + "\n" + timePart;
+                }
+                else
+                {
+                    // Fallback: if the format is unexpected, just use the original text.
+                    minimapTimeText.text = originalText;
+                }
             }
         }
+
 
         // Grid properties
         private static int gridSize = 20; // grid cell size in pixels
@@ -383,12 +483,23 @@ namespace MinimapMod
                 frameRect.pivot = new Vector2(1, 1);
                 // Offset from top-right (negative X moves left, negative Y moves down)
                 frameRect.anchoredPosition = new Vector2(-20, -20);
-                Image frameImage = frameObj.AddComponent<Image>();
-                frameImage.color = new Color(0.1f, 0.1f, 0.1f, 0f);
+
+                // *****************
+                // Create a new container for the minimap display (the actual map)
+                minimapDisplayObject = new GameObject("MinimapDisplay");
+                minimapDisplayObject.transform.SetParent(frameObj.transform, false);
+                RectTransform displayRect = minimapDisplayObject.AddComponent<RectTransform>();
+                // Let the display occupy the upper part of the frame leaving room at the bottom for time.
+                displayRect.anchorMin = new Vector2(0, 0);
+                displayRect.anchorMax = new Vector2(1, 1);
+                // Reserve 50 pixels at the bottom for the time display.
+                displayRect.offsetMin = new Vector2(0, 50);
+                displayRect.offsetMax = Vector2.zero;
+                // *****************
 
                 // Create a mask to clip the map content.
                 GameObject maskObj = new GameObject("MinimapMask");
-                maskObj.transform.SetParent(frameObj.transform, false);
+                maskObj.transform.SetParent(minimapDisplayObject.transform, false);
                 RectTransform maskRect = maskObj.AddComponent<RectTransform>();
                 maskRect.sizeDelta = new Vector2(140, 140);
                 maskRect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -401,14 +512,13 @@ namespace MinimapMod
                 // Instead of using an external resource, create a circular sprite at runtime.
                 Sprite circleSprite = CreateCircleSprite(140, Color.white);
                 maskImage.sprite = circleSprite;
-                maskImage.type = Image.Type.Sliced; // Sliced works well with masks.
+                maskImage.type = Image.Type.Sliced;
                 maskImage.color = Color.white;
 
                 // Create a border for the minimap by adding an Image behind the mask.
                 GameObject borderObj = new GameObject("MinimapBorder");
-                borderObj.transform.SetParent(frameObj.transform, false);
+                borderObj.transform.SetParent(minimapDisplayObject.transform, false);
                 RectTransform borderRect = borderObj.AddComponent<RectTransform>();
-                // Set the border to be slightly larger than the mask.
                 borderRect.sizeDelta = new Vector2(150, 150);
                 borderRect.anchorMin = new Vector2(0.5f, 0.5f);
                 borderRect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -416,7 +526,6 @@ namespace MinimapMod
                 borderRect.anchoredPosition = Vector2.zero;
                 borderObj.transform.SetSiblingIndex(0);
                 Image borderImage = borderObj.AddComponent<Image>();
-                // Use a circular sprite for the border (you can use the same CreateCircleSprite function)
                 Sprite BorderCircleSprite = CreateCircleSprite(150, Color.black);
                 borderImage.sprite = BorderCircleSprite;
                 borderImage.type = Image.Type.Sliced;
@@ -426,7 +535,7 @@ namespace MinimapMod
                 mapContentObject = new GameObject("MapContent");
                 mapContentObject.transform.SetParent(maskObj.transform, false);
                 RectTransform contentRect = mapContentObject.AddComponent<RectTransform>();
-                contentRect.sizeDelta = new Vector2(500, 500); // Adjust as needed.
+                contentRect.sizeDelta = new Vector2(500, 500);
                 contentRect.anchorMin = new Vector2(0.5f, 0.5f);
                 contentRect.anchorMax = new Vector2(0.5f, 0.5f);
                 contentRect.pivot = new Vector2(0.5f, 0.5f);
@@ -442,7 +551,7 @@ namespace MinimapMod
                 gridContainer.pivot = new Vector2(0.5f, 0.5f);
                 gridContainer.anchoredPosition = Vector2.zero;
 
-                // Create the time display as a child of the minimap frame.
+                // Create the time display as a child of the frame (outside the minimap display)
                 CreateMinimapTimeDisplay(frameRect);
 
                 // --- PLAYER ICON SETUP ---
@@ -488,7 +597,6 @@ namespace MinimapMod
                 // --- END PLAYER ICON SETUP ---
 
                 MelonLogger.Msg("Minimap UI created successfully.");
-                // (Optional) Call AddDefaultMarkers() if you have static markers to add.
             }
             catch (Exception ex)
             {
@@ -545,11 +653,10 @@ namespace MinimapMod
         {
             try
             {
-                if (Input.GetKeyDown(KeyCode.F3) && minimapObject != null)
+                if (Input.GetKeyDown(KeyCode.F3))
                 {
-                    isEnabled = !isEnabled;
-                    minimapObject.SetActive(isEnabled);
-                    MelonLogger.Msg("Minimap " + (isEnabled ? "Enabled" : "Disabled"));
+                    guiVisible = !guiVisible;
+                    MelonLogger.Msg("GUI " + (guiVisible ? "Opened" : "Closed"));
                 }
                 if (isEnabled && playerObject != null && mapContentObject != null)
                 {
