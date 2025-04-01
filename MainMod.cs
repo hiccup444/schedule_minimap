@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,10 +8,10 @@ namespace MinimapMod
 {
     public class MainMod : MelonMod
     {
-
         private bool guiVisible = false;
         private bool minimapEnabled = true;
         private bool timeBarEnabled = true;
+        private const float markerXAdjustment = 5f;
 
         private Rect minimapToggleRect = new Rect(Screen.width - 170, 260, 150, 25);
         private Rect timeToggleRect = new Rect(Screen.width - 170, 250, 150, 25);
@@ -35,16 +36,19 @@ namespace MinimapMod
 
         // References to track game objects
         private Text minimapTimeText;
+        private GameObject contractPoIIconPrefab; // Cached IconContainer prefab for ContractPoI
         private static GameObject mapAppObject;
         private static GameObject viewportObject;
         private static GameObject playerObject;
         private static GameObject mapContentObject;
         private static RectTransform gridContainer;
 
-        // Rotates a vector by a given angle (in degrees)
+        // List to track all ContractPoI markers
+        private List<GameObject> contractPoIMarkers = new List<GameObject>();
+
         private Vector2 RotateVector(Vector2 v, float degrees)
         {
-            float rad = degrees * 0.0174532924f; // degrees to radians
+            float rad = degrees * 0.0174532924f;
             float cos = Mathf.Cos(rad);
             float sin = Mathf.Sin(rad);
             return new Vector2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
@@ -62,7 +66,6 @@ namespace MinimapMod
 
             if (!doubleSizeEnabled)
             {
-                // 1x mode: Use your original fixed layout (which is perfect)
                 guiBgRect = new Rect(Screen.width - 175, 220, 160, 100);
                 minimapToggleRectAdjusted = new Rect(Screen.width - 170, 230, 150, 25);
                 timeToggleRectAdjusted = new Rect(Screen.width - 170, 260, 150, 25);
@@ -70,8 +73,6 @@ namespace MinimapMod
             }
             else
             {
-                // 2x mode: Use statically defined values.
-                // Adjust these values based on your desired layout.
                 guiBgRect = new Rect(Screen.width - 250, 380, 160, 100);
                 minimapToggleRectAdjusted = new Rect(Screen.width - 255, 390, 300, 25);
                 timeToggleRectAdjusted = new Rect(Screen.width - 255, 420, 300, 25);
@@ -85,7 +86,6 @@ namespace MinimapMod
             {
                 if (minimapDisplayObject != null)
                     minimapDisplayObject.SetActive(minimapEnabled);
-
                 if (minimapTimeContainer != null)
                 {
                     if (minimapEnabled)
@@ -93,7 +93,6 @@ namespace MinimapMod
                         minimapTimeContainer.anchorMin = new Vector2(0.5f, 0);
                         minimapTimeContainer.anchorMax = new Vector2(0.5f, 0);
                         minimapTimeContainer.pivot = new Vector2(0.5f, 1);
-                        // (Time container’s anchoredPosition is set in CreateMinimapTimeDisplay)
                     }
                     else
                     {
@@ -117,24 +116,16 @@ namespace MinimapMod
             });
         }
 
-
         private void DrawToggle(Rect position, string label, ref bool state, Action onToggle)
         {
-            // Draw label
             GUI.color = Color.white;
             GUI.Label(new Rect(position.x + 50, position.y, position.width - 50, position.height), label);
-
-            // Switch background
             Rect switchBg = new Rect(position.x + 5, position.y + 3, 40, 18);
             GUI.color = state ? Color.green : Color.gray;
             GUI.Box(switchBg, "");
-
-            // Handle
             Rect handle = new Rect(state ? switchBg.x + 22 : switchBg.x + 2, switchBg.y + 2, 14, 14);
             GUI.color = Color.white;
             GUI.Box(handle, "");
-
-            // Invisible button overlay
             if (GUI.Button(position, new GUIContent(""), GUIStyle.none))
             {
                 state = !state;
@@ -154,15 +145,14 @@ namespace MinimapMod
 
             if (doubleSizeEnabled)
             {
-                timeRect.anchoredPosition = new Vector2(0, -60);
+                timeRect.anchoredPosition = new Vector2(0, 40);
             }
             else
             {
                 timeRect.anchoredPosition = new Vector2(0, 10);
             }
 
-            minimapTimeContainer = timeRect; // cache it
-
+            minimapTimeContainer = timeRect;
             Image bgImage = timeContainer.AddComponent<Image>();
             bgImage.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
 
@@ -183,46 +173,32 @@ namespace MinimapMod
             minimapTimeText.verticalOverflow = VerticalWrapMode.Overflow;
         }
 
-
-
         private void UpdateMinimapTime()
         {
-            // If we haven't cached the time text yet, try to find it.
             if (cachedGameTimeText == null)
             {
                 GameObject timeObj = GameObject.Find("GameplayMenu/Phone/phone/HomeScreen/InfoBar/Time");
                 if (timeObj != null)
-                {
                     cachedGameTimeText = timeObj.GetComponent<Text>();
-                }
             }
-
             if (cachedGameTimeText != null && minimapTimeText != null)
             {
-                string originalText = cachedGameTimeText.text; // Expected format: "10:20 AM Monday"
+                string originalText = cachedGameTimeText.text;
                 string[] tokens = originalText.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 if (tokens.Length >= 3)
                 {
-                    // Assume the time is the first two tokens and the day is the last token.
                     string timePart = tokens[0] + " " + tokens[1];
                     string dayPart = tokens[tokens.Length - 1];
                     minimapTimeText.text = dayPart + "\n" + timePart;
                 }
                 else
-                {
-                    // Fallback: if the format is unexpected, just use the original text.
                     minimapTimeText.text = originalText;
-                }
             }
         }
 
-
-        // Grid properties
-        private static int gridSize = 20; // grid cell size in pixels
+        private static int gridSize = 20;
         private static Color gridColor = new Color(0.3f, 0.3f, 0.3f, 1f);
         private static Color bgColor = new Color(0.1f, 0.1f, 0.1f, 1f);
-
-        // Smoothing factor for map movement
         private static float smoothingFactor = 10f;
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -233,22 +209,17 @@ namespace MinimapMod
                 {
                     isInitializing = true;
                     MelonLogger.Msg("Detected Main scene, initializing Minimap...");
-
-                    // Clean up any existing minimap instance
                     if (minimapObject != null)
                     {
                         UnityEngine.Object.Destroy(minimapObject);
                         minimapObject = null;
                     }
-
-                    // Create the minimap UI (which includes player marker setup)
                     CreateMinimapUI();
-
-                    // Start locating required game objects
                     MelonCoroutines.Start(FindGameObjectsRoutine());
                     isInitializing = false;
+                    CacheContractPoIIcon();
                     MelonCoroutines.Start(UpdateMinimapTimeCoroutine());
-                    MelonCoroutines.Start(ContractPoIChecker());
+                    MelonCoroutines.Start(ContractPoICheckerWorld());
                 }
             }
             catch (Exception ex)
@@ -268,14 +239,12 @@ namespace MinimapMod
                 attempts++;
                 try
                 {
-                    // Locate the player
                     if (playerObject == null)
                     {
                         playerObject = GameObject.Find("Player_Local");
                         if (playerObject != null)
                             MelonLogger.Msg("Found Player_Local");
                     }
-                    // Locate the Map App
                     if (mapAppObject == null)
                     {
                         GameObject gameplayMenu = GameObject.Find("GameplayMenu");
@@ -305,7 +274,6 @@ namespace MinimapMod
                             }
                         }
                     }
-                    // Locate the viewport under Map App
                     if (mapAppObject != null && viewportObject == null)
                     {
                         Transform container = mapAppObject.transform.Find("Container");
@@ -341,7 +309,6 @@ namespace MinimapMod
                 MelonLogger.Warning("Could not find Player after multiple attempts");
             MelonLogger.Msg("Game object search completed");
 
-            // Access the map content to apply the map sprite
             if (viewportObject != null)
             {
                 try
@@ -362,7 +329,6 @@ namespace MinimapMod
                                 minimapImage.sprite = contentImage.sprite;
                                 minimapImage.type = Image.Type.Simple;
                                 minimapImage.preserveAspect = true;
-                                // Force update via disable/enable
                                 minimapImage.enabled = false;
                                 minimapImage.enabled = true;
                                 MelonLogger.Msg("Successfully applied map sprite to minimap!");
@@ -408,18 +374,15 @@ namespace MinimapMod
             }
             CreateVisualGrid();
 
-            // Optional: Replace fallback player marker if real asset is available now.
             if (cachedPlayerMarker != null)
             {
                 Image markerImage = cachedPlayerMarker.GetComponent<Image>();
                 if (markerImage != null && markerImage.color.Equals(new Color(0.2f, 0.6f, 1f, 1f)))
                 {
-                    // If we haven't cached the map content yet, try to find it
                     if (cachedMapContent == null)
                     {
                         cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
                     }
-
                     if (cachedMapContent != null)
                     {
                         Transform playerPoI = cachedMapContent.transform.Find("PlayerPoI(Clone)");
@@ -437,7 +400,6 @@ namespace MinimapMod
                                     newRect.anchoredPosition = Vector2.zero;
                                     newRect.localScale = new Vector3(0.5f, 0.5f, 0.5f);
                                 }
-                                // Remove the arrow
                                 Transform arrowImage = newMarker.transform.Find("Image");
                                 if (arrowImage != null)
                                 {
@@ -453,19 +415,16 @@ namespace MinimapMod
                 }
             }
 
-            // Now add static markers using the PropertyPoI
             if (cachedMapContent == null)
             {
                 cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
             }
-
             if (cachedMapContent != null)
             {
                 if (cachedPropertyPoI == null)
                 {
                     cachedPropertyPoI = cachedMapContent.transform.Find("PropertyPoI(Clone)");
                 }
-
                 if (cachedPropertyPoI != null)
                 {
                     Transform iconContainer = cachedPropertyPoI.Find("IconContainer");
@@ -481,24 +440,21 @@ namespace MinimapMod
         {
             if (doubleSizeEnabled)
             {
-                // Lower the 2x minimap by 15 pixels relative to the 1x position.
                 minimapFrameRect.anchoredPosition = new Vector2(-20, -60);
             }
             else
             {
-                // Restore the original 1x position.
                 minimapFrameRect.anchoredPosition = new Vector2(-20, -20);
             }
         }
+
         private void UpdateMinimapSize()
         {
             float factor = doubleSizeEnabled ? 2f : 1f;
-
             if (minimapFrameRect != null)
             {
                 minimapFrameRect.sizeDelta = new Vector2(150, 150) * factor;
             }
-
             if (minimapDisplayObject != null)
             {
                 RectTransform displayRect = minimapDisplayObject.GetComponent<RectTransform>();
@@ -507,7 +463,6 @@ namespace MinimapMod
                     displayRect.offsetMin = new Vector2(0, 50 * factor);
                 }
             }
-
             Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
             if (maskTransform != null)
             {
@@ -517,7 +472,6 @@ namespace MinimapMod
                     maskRect.sizeDelta = new Vector2(140, 140) * factor;
                 }
             }
-
             Transform borderTransform = minimapDisplayObject.transform.Find("MinimapBorder");
             if (borderTransform != null)
             {
@@ -527,14 +481,9 @@ namespace MinimapMod
                     borderRect.sizeDelta = new Vector2(150, 150) * factor;
                 }
             }
-
-            // Keep mapScale constant.
             mapScale = 1.2487098f;
-
             ResetMapContentPosition();
             UpdateMinimapFramePosition();
-
-            // Now update the time display position for the current mode.
             UpdateTimeDisplayPosition();
         }
 
@@ -542,13 +491,9 @@ namespace MinimapMod
         {
             if (playerObject == null || mapContentObject == null || minimapDisplayObject == null)
                 return;
-
-            // Convert player world position.
             Vector3 playerPos = playerObject.transform.position;
             float mapX = -playerPos.x * mapScale;
             float mapY = -playerPos.z * mapScale;
-
-            // Calculate dynamic center of the minimap mask.
             Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
             Vector2 dynamicCenter = Vector2.zero;
             if (maskTransform != null)
@@ -559,15 +504,8 @@ namespace MinimapMod
                     dynamicCenter = new Vector2(maskRect.rect.width * 0.5f, maskRect.rect.height * 0.5f);
                 }
             }
-
-            // Use preset offsets:
-            // For 1x: presetOffset = (-61, -71)
-            // For 2x: presetOffset = (-131, -141)
             Vector2 presetOffset = doubleSizeEnabled ? new Vector2(-131f, -141f) : new Vector2(-61f, -71f);
-
-            // Compute final target position.
             Vector2 targetPos = new Vector2(mapX, mapY) + dynamicCenter + presetOffset;
-
             RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
             if (contentRect != null)
             {
@@ -579,26 +517,17 @@ namespace MinimapMod
         {
             try
             {
-                // Create the minimap container and mark it as DontDestroyOnLoad.
                 minimapObject = new GameObject("MinimapContainer");
                 UnityEngine.Object.DontDestroyOnLoad(minimapObject);
-
-                // Create a canvas for the minimap UI.
                 GameObject canvasObj = new GameObject("MinimapCanvas");
                 canvasObj.transform.SetParent(minimapObject.transform, false);
                 Canvas canvas = canvasObj.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
                 canvas.sortingOrder = 9999;
-
-                // Add a CanvasScaler.
                 CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
                 scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
                 scaler.referenceResolution = new Vector2(1920, 1080);
-
-                // Add a GraphicRaycaster.
                 canvasObj.AddComponent<GraphicRaycaster>();
-
-                // Create the minimap frame.
                 GameObject frameObj = new GameObject("MinimapFrame");
                 frameObj.transform.SetParent(canvasObj.transform, false);
                 minimapFrameRect = frameObj.AddComponent<RectTransform>();
@@ -607,21 +536,13 @@ namespace MinimapMod
                 minimapFrameRect.anchorMax = new Vector2(1, 1);
                 minimapFrameRect.pivot = new Vector2(1, 1);
                 minimapFrameRect.anchoredPosition = new Vector2(-20, -20);
-
-                // *****************
-                // Create a new container for the minimap display (the actual map)
                 minimapDisplayObject = new GameObject("MinimapDisplay");
                 minimapDisplayObject.transform.SetParent(frameObj.transform, false);
                 RectTransform displayRect = minimapDisplayObject.AddComponent<RectTransform>();
-                // Let the display occupy the upper part of the frame leaving room at the bottom for time.
                 displayRect.anchorMin = new Vector2(0, 0);
                 displayRect.anchorMax = new Vector2(1, 1);
-                // Reserve 50 pixels at the bottom for the time display.
                 displayRect.offsetMin = new Vector2(0, 50);
                 displayRect.offsetMax = Vector2.zero;
-                // *****************
-
-                // Create a mask to clip the map content.
                 GameObject maskObj = new GameObject("MinimapMask");
                 maskObj.transform.SetParent(minimapDisplayObject.transform, false);
                 RectTransform maskRect = maskObj.AddComponent<RectTransform>();
@@ -633,13 +554,10 @@ namespace MinimapMod
                 Mask mask = maskObj.AddComponent<Mask>();
                 mask.showMaskGraphic = false;
                 Image maskImage = maskObj.AddComponent<Image>();
-                // Instead of using an external resource, create a circular sprite at runtime.
                 Sprite circleSprite = CreateCircleSprite(140, Color.white);
                 maskImage.sprite = circleSprite;
                 maskImage.type = Image.Type.Sliced;
                 maskImage.color = Color.white;
-
-                // Create a border for the minimap by adding an Image behind the mask.
                 GameObject borderObj = new GameObject("MinimapBorder");
                 borderObj.transform.SetParent(minimapDisplayObject.transform, false);
                 RectTransform borderRect = borderObj.AddComponent<RectTransform>();
@@ -654,8 +572,6 @@ namespace MinimapMod
                 borderImage.sprite = BorderCircleSprite;
                 borderImage.type = Image.Type.Sliced;
                 borderImage.color = Color.black;
-
-                // Create the map content container.
                 mapContentObject = new GameObject("MapContent");
                 mapContentObject.transform.SetParent(maskObj.transform, false);
                 RectTransform contentRect = mapContentObject.AddComponent<RectTransform>();
@@ -664,8 +580,6 @@ namespace MinimapMod
                 contentRect.anchorMax = new Vector2(0.5f, 0.5f);
                 contentRect.pivot = new Vector2(0.5f, 0.5f);
                 contentRect.anchoredPosition = Vector2.zero;
-
-                // Create a container for the grid overlay.
                 GameObject gridObj = new GameObject("GridContainer");
                 gridObj.transform.SetParent(mapContentObject.transform, false);
                 gridContainer = gridObj.AddComponent<RectTransform>();
@@ -674,12 +588,8 @@ namespace MinimapMod
                 gridContainer.anchorMax = new Vector2(0.5f, 0.5f);
                 gridContainer.pivot = new Vector2(0.5f, 0.5f);
                 gridContainer.anchoredPosition = Vector2.zero;
-
-                // Create the time display as a child of the frame (outside the minimap display)
                 CreateMinimapTimeDisplay(minimapFrameRect);
 
-                // --- PLAYER ICON SETUP ---
-                // Look for the Content object, then "PlayerPoI(Clone)", then "IconContainer".
                 GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
                 if (contentObj != null)
                 {
@@ -689,7 +599,6 @@ namespace MinimapMod
                         Transform iconContainer = playerPoI.Find("IconContainer");
                         if (iconContainer != null)
                         {
-                            // Clone the IconContainer as the player marker.
                             cachedPlayerMarker = UnityEngine.Object.Instantiate(iconContainer.gameObject);
                             cachedPlayerMarker.name = "PlayerMarker";
                             cachedPlayerMarker.transform.SetParent(maskObj.transform, false);
@@ -718,8 +627,6 @@ namespace MinimapMod
                     MelonLogger.Msg("Content object not found. Using fallback marker.");
                     CreateFallbackPlayerMarker(maskObj);
                 }
-                // --- END PLAYER ICON SETUP ---
-
                 MelonLogger.Msg("Minimap UI created successfully.");
             }
             catch (Exception ex)
@@ -735,7 +642,6 @@ namespace MinimapMod
                 if (gridContainer == null)
                     return;
                 int gridCount = 10;
-                // Horizontal lines
                 for (int i = 0; i <= gridCount; i++)
                 {
                     GameObject lineObj = new GameObject($"HLine_{i}");
@@ -750,7 +656,6 @@ namespace MinimapMod
                     Image lineImage = lineObj.AddComponent<Image>();
                     lineImage.color = gridColor;
                 }
-                // Vertical lines
                 for (int i = 0; i <= gridCount; i++)
                 {
                     GameObject lineObj = new GameObject($"VLine_{i}");
@@ -777,20 +682,15 @@ namespace MinimapMod
         {
             try
             {
-                // Toggle GUI visibility with F3.
                 if (Input.GetKeyDown(KeyCode.F3))
                 {
                     guiVisible = !guiVisible;
                 }
-
-                // Update the map content position.
                 if (isEnabled && playerObject != null && mapContentObject != null && minimapDisplayObject != null)
                 {
                     Vector3 playerPos = playerObject.transform.position;
                     float mapX = -playerPos.x * mapScale;
                     float mapY = -playerPos.z * mapScale;
-
-                    // Calculate dynamic center of the minimap mask.
                     Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
                     Vector2 dynamicCenter = Vector2.zero;
                     if (maskTransform != null)
@@ -801,12 +701,8 @@ namespace MinimapMod
                             dynamicCenter = new Vector2(maskRect.rect.width * 0.5f, maskRect.rect.height * 0.5f);
                         }
                     }
-
-                    // Preset offset: (-61, -71) for 1x, (-131, -141) for 2x.
                     Vector2 presetOffset = doubleSizeEnabled ? new Vector2(-131f, -141f) : new Vector2(-61f, -71f);
-
                     Vector2 targetPos = new Vector2(mapX, mapY) + dynamicCenter + presetOffset;
-
                     RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
                     if (contentRect != null)
                     {
@@ -834,8 +730,6 @@ namespace MinimapMod
         {
             if (cachedPlayerMarker == null || playerObject == null)
                 return;
-
-            // If we haven't cached the direction indicator yet, try to find it.
             if (cachedDirectionIndicator == null)
             {
                 Transform found = cachedPlayerMarker.transform.Find("DirectionIndicator");
@@ -845,7 +739,6 @@ namespace MinimapMod
                 }
                 else
                 {
-                    // Create it once if it doesn't exist.
                     GameObject directionObj = new GameObject("DirectionIndicator");
                     directionObj.transform.SetParent(cachedPlayerMarker.transform, false);
                     cachedDirectionIndicator = directionObj.AddComponent<RectTransform>();
@@ -854,8 +747,6 @@ namespace MinimapMod
                     indicatorImage.color = Color.white;
                 }
             }
-
-            // Now update the cached direction indicator.
             cachedDirectionIndicator.pivot = new Vector2(0.5f, 0.5f);
             float orbitDistance = 15f;
             float playerAngle = playerObject.transform.rotation.eulerAngles.y;
@@ -870,7 +761,6 @@ namespace MinimapMod
         private Sprite CreateCircleSprite(int diameter, Color color)
         {
             Texture2D tex = new Texture2D(diameter, diameter, TextureFormat.ARGB32, false);
-            // Make texture fully transparent first.
             Color transparent = new Color(0, 0, 0, 0);
             for (int y = 0; y < diameter; y++)
             {
@@ -879,7 +769,6 @@ namespace MinimapMod
                     tex.SetPixel(x, y, transparent);
                 }
             }
-            // Draw the circle.
             int radius = diameter / 2;
             Vector2 center = new Vector2(radius, radius);
             for (int y = 0; y < diameter; y++)
@@ -903,36 +792,28 @@ namespace MinimapMod
                 MelonLogger.Warning("Map content object is null; cannot add marker.");
                 return;
             }
-
-            // If we haven't cached the map content yet, try to find it
             if (cachedMapContent == null)
             {
                 cachedMapContent = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
             }
-
             if (cachedMapContent != null)
             {
-                // If we haven't cached the PropertyPoI yet, try to find it
                 if (cachedPropertyPoI == null)
                 {
                     cachedPropertyPoI = cachedMapContent.transform.Find("PropertyPoI(Clone)");
                 }
-
                 if (cachedPropertyPoI != null)
                 {
                     Transform iconContainer = cachedPropertyPoI.Find("IconContainer");
                     if (iconContainer != null)
                     {
-                        // Clone the IconContainer to use as the marker.
                         GameObject marker = UnityEngine.Object.Instantiate(iconContainer.gameObject);
                         marker.name = "StaticMarker_White";
                         marker.transform.SetParent(mapContentObject.transform, false);
                         RectTransform markerRect = marker.GetComponent<RectTransform>();
                         if (markerRect != null)
                         {
-                            // Adjust scale if necessary.
                             markerRect.localScale = new Vector3(0.5f, 0.5f, 0.5f);
-                            // Compute marker position in the minimap.
                             float posX = worldPos.x * mapScale;
                             float posY = worldPos.z * mapScale;
                             markerRect.anchoredPosition = new Vector2(posX, posY);
@@ -956,7 +837,6 @@ namespace MinimapMod
             marker.transform.SetParent(mapContentObject.transform, false);
             RectTransform markerRect = marker.AddComponent<RectTransform>();
             markerRect.sizeDelta = new Vector2(5f, 5f);
-            // Compute position using world coordinates (multiplied by mapScale)
             float posX = worldPos.x * mapScale;
             float posY = worldPos.z * mapScale;
             markerRect.anchoredPosition = new Vector2(posX, posY);
@@ -967,12 +847,9 @@ namespace MinimapMod
 
         private void AddDefaultMarkers()
         {
-            // White markers using the in-game asset.
             AddWhiteStaticMarker(new Vector3(-67.17f, -3.03f, 138.31f));
             AddWhiteStaticMarker(new Vector3(-79.88f, -2.26f, 85.13f));
             AddWhiteStaticMarker(new Vector3(-179.99f, -3.03f, 113.69f));
-
-            // Red markers using a simple red square.
             AddRedStaticMarker(new Vector3(-68.44f, -1.49f, 35.37f));
             AddRedStaticMarker(new Vector3(-34.55f, -1.54f, 27.06f));
             AddRedStaticMarker(new Vector3(70.33f, 1.37f, -10.01f));
@@ -984,137 +861,187 @@ namespace MinimapMod
             {
                 if (doubleSizeEnabled)
                 {
-                    // For 2x mode, set the time container to a fixed position.
-                    // Adjust these numbers until it appears correctly.
                     minimapTimeContainer.anchoredPosition = new Vector2(0, 40);
                 }
                 else
                 {
-                    // For 1x mode, use the original position.
                     minimapTimeContainer.anchoredPosition = new Vector2(0, 10);
                 }
             }
         }
 
-        private System.Collections.IEnumerator ContractPoIChecker()
+        // Helper recursive search (using a for-loop for IL2CPP compatibility)
+        private void RecursiveFind(Transform current, string targetName, List<Transform> result)
+        {
+            if (current.name == targetName)
+                result.Add(current);
+            for (int i = 0; i < current.childCount; i++)
+            {
+                RecursiveFind(current.GetChild(i), targetName, result);
+            }
+        }
+
+        // Coroutine that every 20 seconds checks for active ContractPoI clones in the Contracts tree.
+        private System.Collections.IEnumerator ContractPoICheckerWorld()
         {
             while (true)
             {
-                MelonLogger.Msg("ContractPoIChecker: Checking for ContractPoI(Clone)...");
                 yield return new WaitForSeconds(20f);
 
-                // Find the MapApp Content object.
-                GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
-                if (contentObj == null)
+                GameObject contractsRoot = GameObject.Find("Managers/@Quests/Contracts");
+                List<Transform> activeCPs = new List<Transform>();
+                if (contractsRoot != null)
                 {
-                    MelonLogger.Warning("ContractPoIChecker: MapApp Content not found; removing ContractPoI marker if exists.");
-                    RemoveContractPoIMarker();
-                    continue;
-                }
-
-                // Find the ContractPoI(Clone) object under Content.
-                Transform contractPoITransform = contentObj.transform.Find("ContractPoI(Clone)");
-                if (contractPoITransform != null)
-                {
-                    MelonLogger.Msg("ContractPoIChecker: ContractPoI(Clone) found.");
-                    // ContractPoI is present, so ensure the marker is added.
-                    if (GameObject.Find("ContractPoIMarker") == null)
+                    Transform contractsTransform = contractsRoot.transform;
+                    for (int i = 0; i < contractsTransform.childCount; i++)
                     {
-                        MelonLogger.Msg("ContractPoIChecker: No marker found; adding marker now.");
-                        AddContractPoIMarker();
-                    }
-                    else
-                    {
-                        MelonLogger.Msg("ContractPoIChecker: Marker already exists.");
+                        RecursiveFind(contractsTransform.GetChild(i), "ContractPoI(Clone)", activeCPs);
                     }
                 }
                 else
                 {
-                    MelonLogger.Warning("ContractPoIChecker: ContractPoI(Clone) NOT found; removing any existing marker.");
-                    RemoveContractPoIMarker();
+                    RemoveAllContractPoIMarkers();
+                    continue;
+                }
+
+                // Only keep active CPs.
+                activeCPs.RemoveAll(cp => !cp.gameObject.activeInHierarchy);
+
+                float threshold = 0.1f;
+                foreach (Transform cp in activeCPs)
+                {
+                    Vector3 wp = cp.position;
+                    Vector2 desiredPos = new Vector2(wp.x * mapScale, wp.z * mapScale);
+                    desiredPos.x -= markerXAdjustment;
+
+                    bool markerFound = false;
+                    for (int i = 0; i < contractPoIMarkers.Count; i++)
+                    {
+                        GameObject marker = contractPoIMarkers[i];
+                        if (marker == null) continue;
+                        RectTransform rt = marker.GetComponent<RectTransform>();
+                        if (rt != null && Vector2.Distance(rt.anchoredPosition, desiredPos) < threshold)
+                        {
+                            markerFound = true;
+                            break;
+                        }
+                    }
+                    if (!markerFound)
+                    {
+                        AddContractPoIMarkerWorld(cp);
+                    }
+                }
+
+                // Remove markers that no longer correspond to any active CP.
+                for (int i = contractPoIMarkers.Count - 1; i >= 0; i--)
+                {
+                    GameObject marker = contractPoIMarkers[i];
+                    if (marker == null)
+                    {
+                        contractPoIMarkers.RemoveAt(i);
+                        continue;
+                    }
+                    RectTransform rt = marker.GetComponent<RectTransform>();
+                    bool stillExists = false;
+                    if (rt != null)
+                    {
+                        Vector2 markerPos = rt.anchoredPosition;
+                        foreach (Transform cp in activeCPs)
+                        {
+                            Vector2 desiredPos = new Vector2(cp.position.x * mapScale, cp.position.z * mapScale);
+                            desiredPos.x -= markerXAdjustment;
+                            if (Vector2.Distance(markerPos, desiredPos) < threshold)
+                            {
+                                stillExists = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!stillExists)
+                    {
+                        UnityEngine.Object.Destroy(marker);
+                        contractPoIMarkers.RemoveAt(i);
+                    }
                 }
             }
         }
 
-        private void RemoveContractPoIMarker()
+        private void RemoveAllContractPoIMarkers()
         {
-            GameObject existingMarker = GameObject.Find("ContractPoIMarker");
-            if (existingMarker != null)
+            foreach (GameObject marker in contractPoIMarkers)
             {
-                UnityEngine.Object.Destroy(existingMarker);
-                MelonLogger.Msg("RemoveContractPoIMarker: ContractPoI marker removed.");
+                if (marker != null)
+                    UnityEngine.Object.Destroy(marker);
             }
-            else
-            {
-                MelonLogger.Msg("RemoveContractPoIMarker: No ContractPoI marker found to remove.");
-            }
+            contractPoIMarkers.Clear();
         }
 
-        private void AddContractPoIMarker()
+        private void AddContractPoIMarkerWorld(Transform cpTransform)
         {
-            // Try to find the MapApp Content object.
-            GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
-            if (contentObj == null)
+            if (cpTransform == null)
             {
-                MelonLogger.Warning("AddContractPoIMarker: MapApp Content not found; cannot add ContractPoI marker.");
                 return;
             }
 
-            // Find the ContractPoI(Clone) object under Content.
-            Transform contractPoITransform = contentObj.transform.Find("ContractPoI(Clone)");
-            if (contractPoITransform == null)
+            Vector3 wp = cpTransform.position;
+            Vector2 minimapPos = new Vector2(wp.x * mapScale, wp.z * mapScale);
+            // Apply the X adjustment.
+            minimapPos.x -= markerXAdjustment;
+
+            if (contractPoIIconPrefab == null)
             {
-                MelonLogger.Warning("AddContractPoIMarker: ContractPoI(Clone) not found under Content.");
-                return;
+                CacheContractPoIIcon();
+                if (contractPoIIconPrefab == null)
+                {
+                    return;
+                }
             }
 
-            // Retrieve its local position.
-            Vector3 contractPoILocalPos = contractPoITransform.localPosition;
-            MelonLogger.Msg("AddContractPoIMarker: ContractPoI local position: " + contractPoILocalPos);
+            GameObject marker = UnityEngine.Object.Instantiate(contractPoIIconPrefab);
+            marker.name = "ContractPoIMarker_" + cpTransform.GetInstanceID();
 
-            // Convert the local position into minimap space.
-            // Adjust conversionFactor as needed.
-            float conversionFactor = 285f;
-            Vector2 markerPos = new Vector2(contractPoILocalPos.x / conversionFactor, contractPoILocalPos.y / conversionFactor);
-            MelonLogger.Msg("AddContractPoIMarker: Converted marker position: " + markerPos);
-
-            // Find the IconContainer inside ContractPoI(Clone)
-            Transform iconContainerTransform = contractPoITransform.Find("IconContainer");
-            if (iconContainerTransform == null)
-            {
-                MelonLogger.Warning("AddContractPoIMarker: IconContainer not found under ContractPoI(Clone).");
-                return;
-            }
-
-            // Instantiate a copy of the IconContainer to serve as our static marker.
-            GameObject marker = UnityEngine.Object.Instantiate(iconContainerTransform.gameObject);
-            marker.name = "ContractPoIMarker";
-
-            // Parent it to your minimap content.
             if (mapContentObject != null)
             {
                 marker.transform.SetParent(mapContentObject.transform, false);
             }
             else
             {
-                MelonLogger.Warning("AddContractPoIMarker: Map content object is null; cannot add ContractPoI marker.");
                 return;
             }
 
-            // Set the marker’s RectTransform anchored position using our converted value.
-            RectTransform markerRect = marker.GetComponent<RectTransform>();
-            if (markerRect != null)
+            RectTransform rt = marker.GetComponent<RectTransform>();
+            if (rt != null)
             {
-                markerRect.anchoredPosition = markerPos;
-                MelonLogger.Msg("AddContractPoIMarker: Marker anchoredPosition set to: " + markerPos);
+                rt.anchoredPosition = minimapPos;
+                rt.localScale = new Vector3(0.5f, 0.5f, 0.5f);
             }
             else
             {
-                MelonLogger.Warning("AddContractPoIMarker: IconContainer copy does not have a RectTransform.");
+                MelonLogger.Warning("AddContractPoIMarkerWorld: Marker does not have a RectTransform.");
             }
 
-            MelonLogger.Msg("AddContractPoIMarker: ContractPoI marker added.");
+            contractPoIMarkers.Add(marker);
         }
+
+        private void CacheContractPoIIcon()
+        {
+            // Only cache if not already cached.
+            if (contractPoIIconPrefab != null)
+                return;
+
+            // Use the full known path.
+            string path = "GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content/ContractPoI(Clone)/IconContainer";
+            GameObject cpIcon = GameObject.Find(path);
+            if (cpIcon != null)
+            {
+                contractPoIIconPrefab = cpIcon;
+            }
+            else
+            {
+                MelonLogger.Warning("CacheContractPoIIcon: Could not find ContractPoI IconContainer at path: " + path);
+            }
+        }
+
 
         private void CreateFallbackPlayerMarker(GameObject parent)
         {
