@@ -248,6 +248,7 @@ namespace MinimapMod
                     MelonCoroutines.Start(FindGameObjectsRoutine());
                     isInitializing = false;
                     MelonCoroutines.Start(UpdateMinimapTimeCoroutine());
+                    MelonCoroutines.Start(ContractPoIChecker());
                 }
             }
             catch (Exception ex)
@@ -993,6 +994,126 @@ namespace MinimapMod
                     minimapTimeContainer.anchoredPosition = new Vector2(0, 10);
                 }
             }
+        }
+
+        private System.Collections.IEnumerator ContractPoIChecker()
+        {
+            while (true)
+            {
+                MelonLogger.Msg("ContractPoIChecker: Checking for ContractPoI(Clone)...");
+                yield return new WaitForSeconds(20f);
+
+                // Find the MapApp Content object.
+                GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+                if (contentObj == null)
+                {
+                    MelonLogger.Warning("ContractPoIChecker: MapApp Content not found; removing ContractPoI marker if exists.");
+                    RemoveContractPoIMarker();
+                    continue;
+                }
+
+                // Find the ContractPoI(Clone) object under Content.
+                Transform contractPoITransform = contentObj.transform.Find("ContractPoI(Clone)");
+                if (contractPoITransform != null)
+                {
+                    MelonLogger.Msg("ContractPoIChecker: ContractPoI(Clone) found.");
+                    // ContractPoI is present, so ensure the marker is added.
+                    if (GameObject.Find("ContractPoIMarker") == null)
+                    {
+                        MelonLogger.Msg("ContractPoIChecker: No marker found; adding marker now.");
+                        AddContractPoIMarker();
+                    }
+                    else
+                    {
+                        MelonLogger.Msg("ContractPoIChecker: Marker already exists.");
+                    }
+                }
+                else
+                {
+                    MelonLogger.Warning("ContractPoIChecker: ContractPoI(Clone) NOT found; removing any existing marker.");
+                    RemoveContractPoIMarker();
+                }
+            }
+        }
+
+        private void RemoveContractPoIMarker()
+        {
+            GameObject existingMarker = GameObject.Find("ContractPoIMarker");
+            if (existingMarker != null)
+            {
+                UnityEngine.Object.Destroy(existingMarker);
+                MelonLogger.Msg("RemoveContractPoIMarker: ContractPoI marker removed.");
+            }
+            else
+            {
+                MelonLogger.Msg("RemoveContractPoIMarker: No ContractPoI marker found to remove.");
+            }
+        }
+
+        private void AddContractPoIMarker()
+        {
+            // Try to find the MapApp Content object.
+            GameObject contentObj = GameObject.Find("GameplayMenu/Phone/phone/AppsCanvas/MapApp/Container/Scroll View/Viewport/Content");
+            if (contentObj == null)
+            {
+                MelonLogger.Warning("AddContractPoIMarker: MapApp Content not found; cannot add ContractPoI marker.");
+                return;
+            }
+
+            // Find the ContractPoI(Clone) object under Content.
+            Transform contractPoITransform = contentObj.transform.Find("ContractPoI(Clone)");
+            if (contractPoITransform == null)
+            {
+                MelonLogger.Warning("AddContractPoIMarker: ContractPoI(Clone) not found under Content.");
+                return;
+            }
+
+            // Retrieve its local position.
+            Vector3 contractPoILocalPos = contractPoITransform.localPosition;
+            MelonLogger.Msg("AddContractPoIMarker: ContractPoI local position: " + contractPoILocalPos);
+
+            // Convert the local position into minimap space.
+            // Adjust conversionFactor as needed.
+            float conversionFactor = 285f;
+            Vector2 markerPos = new Vector2(contractPoILocalPos.x / conversionFactor, contractPoILocalPos.y / conversionFactor);
+            MelonLogger.Msg("AddContractPoIMarker: Converted marker position: " + markerPos);
+
+            // Find the IconContainer inside ContractPoI(Clone)
+            Transform iconContainerTransform = contractPoITransform.Find("IconContainer");
+            if (iconContainerTransform == null)
+            {
+                MelonLogger.Warning("AddContractPoIMarker: IconContainer not found under ContractPoI(Clone).");
+                return;
+            }
+
+            // Instantiate a copy of the IconContainer to serve as our static marker.
+            GameObject marker = UnityEngine.Object.Instantiate(iconContainerTransform.gameObject);
+            marker.name = "ContractPoIMarker";
+
+            // Parent it to your minimap content.
+            if (mapContentObject != null)
+            {
+                marker.transform.SetParent(mapContentObject.transform, false);
+            }
+            else
+            {
+                MelonLogger.Warning("AddContractPoIMarker: Map content object is null; cannot add ContractPoI marker.");
+                return;
+            }
+
+            // Set the marker’s RectTransform anchored position using our converted value.
+            RectTransform markerRect = marker.GetComponent<RectTransform>();
+            if (markerRect != null)
+            {
+                markerRect.anchoredPosition = markerPos;
+                MelonLogger.Msg("AddContractPoIMarker: Marker anchoredPosition set to: " + markerPos);
+            }
+            else
+            {
+                MelonLogger.Warning("AddContractPoIMarker: IconContainer copy does not have a RectTransform.");
+            }
+
+            MelonLogger.Msg("AddContractPoIMarker: ContractPoI marker added.");
         }
 
         private void CreateFallbackPlayerMarker(GameObject parent)
