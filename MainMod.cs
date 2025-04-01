@@ -13,15 +13,17 @@ namespace MinimapMod
         private bool timeBarEnabled = true;
 
         private Rect minimapToggleRect = new Rect(Screen.width - 170, 260, 150, 25);
-        private Rect timeToggleRect = new Rect(Screen.width - 170, 290, 150, 25);
-        private Rect guiBackgroundRect = new Rect(Screen.width - 175, 250, 160, 70);
+        private Rect timeToggleRect = new Rect(Screen.width - 170, 250, 150, 25);
+        private Rect guiBackgroundRect = new Rect(Screen.width - 175, 290, 160, 100);
         private GameObject minimapDisplayObject; // Holds the map display (mask, border, map content, grid)
         private RectTransform minimapTimeContainer; // Reference to the time container rect transform
-
+        private bool doubleSizeEnabled = false;         // Whether 2x size is enabled
+        private RectTransform minimapFrameRect;           // Reference to the minimap frame
 
         // Map positioning variables
         private static float mapScale = 1.2487098f;
-        private static Vector2 mapOffset = new Vector2(10f, 0f);
+        private Vector2 manualOffset = new Vector2(-61f, -71f);
+        private Vector2 baseManualOffset = new Vector2(-61f, -71f);
         private static GameObject minimapObject;
         private static bool isInitializing = false;
         private static bool isEnabled = true;
@@ -53,11 +55,33 @@ namespace MinimapMod
             if (!guiVisible)
                 return;
 
-            GUI.color = Color.gray; // Solid gray background
-            GUI.Box(guiBackgroundRect, "");
+            Rect guiBgRect;
+            Rect minimapToggleRectAdjusted;
+            Rect timeToggleRectAdjusted;
+            Rect doubleSizeToggleRectAdjusted;
 
-            // Toggle for Minimap (map display only)
-            DrawToggle(minimapToggleRect, "Minimap", ref minimapEnabled, () =>
+            if (!doubleSizeEnabled)
+            {
+                // 1x mode: Use your original fixed layout (which is perfect)
+                guiBgRect = new Rect(Screen.width - 175, 220, 160, 100);
+                minimapToggleRectAdjusted = new Rect(Screen.width - 170, 230, 150, 25);
+                timeToggleRectAdjusted = new Rect(Screen.width - 170, 260, 150, 25);
+                doubleSizeToggleRectAdjusted = new Rect(Screen.width - 170, 290, 150, 25);
+            }
+            else
+            {
+                // 2x mode: Use statically defined values.
+                // Adjust these values based on your desired layout.
+                guiBgRect = new Rect(Screen.width - 250, 380, 160, 100);
+                minimapToggleRectAdjusted = new Rect(Screen.width - 255, 390, 300, 25);
+                timeToggleRectAdjusted = new Rect(Screen.width - 255, 420, 300, 25);
+                doubleSizeToggleRectAdjusted = new Rect(Screen.width - 255, 450, 300, 25);
+            }
+
+            GUI.color = Color.gray;
+            GUI.Box(guiBgRect, "");
+
+            DrawToggle(minimapToggleRectAdjusted, "Minimap", ref minimapEnabled, () =>
             {
                 if (minimapDisplayObject != null)
                     minimapDisplayObject.SetActive(minimapEnabled);
@@ -66,31 +90,32 @@ namespace MinimapMod
                 {
                     if (minimapEnabled)
                     {
-                        // When minimap is enabled, position time container at the bottom center.
                         minimapTimeContainer.anchorMin = new Vector2(0.5f, 0);
                         minimapTimeContainer.anchorMax = new Vector2(0.5f, 0);
                         minimapTimeContainer.pivot = new Vector2(0.5f, 1);
-                        minimapTimeContainer.anchoredPosition = new Vector2(0, -10);
+                        // (Time container’s anchoredPosition is set in CreateMinimapTimeDisplay)
                     }
                     else
                     {
-                        // When minimap is hidden, move time container to the top right.
                         minimapTimeContainer.anchorMin = new Vector2(1, 1);
                         minimapTimeContainer.anchorMax = new Vector2(1, 1);
                         minimapTimeContainer.pivot = new Vector2(1, 1);
-                        minimapTimeContainer.anchoredPosition = new Vector2(0, 0);
+                        minimapTimeContainer.anchoredPosition = Vector2.zero;
                     }
                 }
             });
 
-            // Toggle for Time display only.
-            DrawToggle(timeToggleRect, "Time", ref timeBarEnabled, () =>
+            DrawToggle(timeToggleRectAdjusted, "Time", ref timeBarEnabled, () =>
             {
                 if (minimapTimeContainer != null)
                     minimapTimeContainer.gameObject.SetActive(timeBarEnabled);
             });
-        }
 
+            DrawToggle(doubleSizeToggleRectAdjusted, "2x Size", ref doubleSizeEnabled, () =>
+            {
+                UpdateMinimapSize();
+            });
+        }
 
 
         private void DrawToggle(Rect position, string label, ref bool state, Action onToggle)
@@ -119,26 +144,28 @@ namespace MinimapMod
 
         private void CreateMinimapTimeDisplay(Transform parent)
         {
-            // Create a container for the time display.
             GameObject timeContainer = new GameObject("MinimapTimeContainer");
             timeContainer.transform.SetParent(parent, false);
             RectTransform timeRect = timeContainer.AddComponent<RectTransform>();
-            // Increase sizeDelta to accommodate two lines of text.
             timeRect.sizeDelta = new Vector2(100, 50);
-            // Anchor it to the bottom center of the parent.
             timeRect.anchorMin = new Vector2(0.5f, 0);
             timeRect.anchorMax = new Vector2(0.5f, 0);
             timeRect.pivot = new Vector2(0.5f, 1);
-            // Set initial position (when minimap is active, it sits lower).
-            timeRect.anchoredPosition = new Vector2(0, -10);
-            // Save reference for later repositioning.
-            minimapTimeContainer = timeRect;
 
-            // Add a semi-transparent grey background.
+            if (doubleSizeEnabled)
+            {
+                timeRect.anchoredPosition = new Vector2(0, -60);
+            }
+            else
+            {
+                timeRect.anchoredPosition = new Vector2(0, 10);
+            }
+
+            minimapTimeContainer = timeRect; // cache it
+
             Image bgImage = timeContainer.AddComponent<Image>();
             bgImage.color = new Color(0.2f, 0.2f, 0.2f, 0.5f);
 
-            // Create the text object.
             GameObject timeTextObj = new GameObject("MinimapTime");
             timeTextObj.transform.SetParent(timeContainer.transform, false);
             RectTransform textRect = timeTextObj.AddComponent<RectTransform>();
@@ -152,10 +179,10 @@ namespace MinimapMod
             minimapTimeText.alignment = TextAnchor.MiddleCenter;
             minimapTimeText.color = Color.white;
             minimapTimeText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            // Allow multiline display.
             minimapTimeText.horizontalOverflow = HorizontalWrapMode.Overflow;
             minimapTimeText.verticalOverflow = VerticalWrapMode.Overflow;
         }
+
 
 
         private void UpdateMinimapTime()
@@ -449,6 +476,104 @@ namespace MinimapMod
             }
         }
 
+        private void UpdateMinimapFramePosition()
+        {
+            if (doubleSizeEnabled)
+            {
+                // Lower the 2x minimap by 15 pixels relative to the 1x position.
+                minimapFrameRect.anchoredPosition = new Vector2(-20, -60);
+            }
+            else
+            {
+                // Restore the original 1x position.
+                minimapFrameRect.anchoredPosition = new Vector2(-20, -20);
+            }
+        }
+        private void UpdateMinimapSize()
+        {
+            float factor = doubleSizeEnabled ? 2f : 1f;
+
+            if (minimapFrameRect != null)
+            {
+                minimapFrameRect.sizeDelta = new Vector2(150, 150) * factor;
+            }
+
+            if (minimapDisplayObject != null)
+            {
+                RectTransform displayRect = minimapDisplayObject.GetComponent<RectTransform>();
+                if (displayRect != null)
+                {
+                    displayRect.offsetMin = new Vector2(0, 50 * factor);
+                }
+            }
+
+            Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
+            if (maskTransform != null)
+            {
+                RectTransform maskRect = maskTransform.GetComponent<RectTransform>();
+                if (maskRect != null)
+                {
+                    maskRect.sizeDelta = new Vector2(140, 140) * factor;
+                }
+            }
+
+            Transform borderTransform = minimapDisplayObject.transform.Find("MinimapBorder");
+            if (borderTransform != null)
+            {
+                RectTransform borderRect = borderTransform.GetComponent<RectTransform>();
+                if (borderRect != null)
+                {
+                    borderRect.sizeDelta = new Vector2(150, 150) * factor;
+                }
+            }
+
+            // Keep mapScale constant.
+            mapScale = 1.2487098f;
+
+            ResetMapContentPosition();
+            UpdateMinimapFramePosition();
+
+            // Now update the time display position for the current mode.
+            UpdateTimeDisplayPosition();
+        }
+
+        private void ResetMapContentPosition()
+        {
+            if (playerObject == null || mapContentObject == null || minimapDisplayObject == null)
+                return;
+
+            // Convert player world position.
+            Vector3 playerPos = playerObject.transform.position;
+            float mapX = -playerPos.x * mapScale;
+            float mapY = -playerPos.z * mapScale;
+
+            // Calculate dynamic center of the minimap mask.
+            Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
+            Vector2 dynamicCenter = Vector2.zero;
+            if (maskTransform != null)
+            {
+                RectTransform maskRect = maskTransform.GetComponent<RectTransform>();
+                if (maskRect != null)
+                {
+                    dynamicCenter = new Vector2(maskRect.rect.width * 0.5f, maskRect.rect.height * 0.5f);
+                }
+            }
+
+            // Use preset offsets:
+            // For 1x: presetOffset = (-61, -71)
+            // For 2x: presetOffset = (-131, -141)
+            Vector2 presetOffset = doubleSizeEnabled ? new Vector2(-131f, -141f) : new Vector2(-61f, -71f);
+
+            // Compute final target position.
+            Vector2 targetPos = new Vector2(mapX, mapY) + dynamicCenter + presetOffset;
+
+            RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
+            if (contentRect != null)
+            {
+                contentRect.anchoredPosition = targetPos;
+            }
+        }
+
         private void CreateMinimapUI()
         {
             try
@@ -475,14 +600,12 @@ namespace MinimapMod
                 // Create the minimap frame.
                 GameObject frameObj = new GameObject("MinimapFrame");
                 frameObj.transform.SetParent(canvasObj.transform, false);
-                RectTransform frameRect = frameObj.AddComponent<RectTransform>();
-                frameRect.sizeDelta = new Vector2(150, 150);
-                // Set anchors and pivot to top-right.
-                frameRect.anchorMin = new Vector2(1, 1);
-                frameRect.anchorMax = new Vector2(1, 1);
-                frameRect.pivot = new Vector2(1, 1);
-                // Offset from top-right (negative X moves left, negative Y moves down)
-                frameRect.anchoredPosition = new Vector2(-20, -20);
+                minimapFrameRect = frameObj.AddComponent<RectTransform>();
+                minimapFrameRect.sizeDelta = new Vector2(150, 150);
+                minimapFrameRect.anchorMin = new Vector2(1, 1);
+                minimapFrameRect.anchorMax = new Vector2(1, 1);
+                minimapFrameRect.pivot = new Vector2(1, 1);
+                minimapFrameRect.anchoredPosition = new Vector2(-20, -20);
 
                 // *****************
                 // Create a new container for the minimap display (the actual map)
@@ -552,7 +675,7 @@ namespace MinimapMod
                 gridContainer.anchoredPosition = Vector2.zero;
 
                 // Create the time display as a child of the frame (outside the minimap display)
-                CreateMinimapTimeDisplay(frameRect);
+                CreateMinimapTimeDisplay(minimapFrameRect);
 
                 // --- PLAYER ICON SETUP ---
                 // Look for the Content object, then "PlayerPoI(Clone)", then "IconContainer".
@@ -653,20 +776,39 @@ namespace MinimapMod
         {
             try
             {
+                // Toggle GUI visibility with F3.
                 if (Input.GetKeyDown(KeyCode.F3))
                 {
                     guiVisible = !guiVisible;
-                    MelonLogger.Msg("GUI " + (guiVisible ? "Opened" : "Closed"));
                 }
-                if (isEnabled && playerObject != null && mapContentObject != null)
+
+                // Update the map content position.
+                if (isEnabled && playerObject != null && mapContentObject != null && minimapDisplayObject != null)
                 {
                     Vector3 playerPos = playerObject.transform.position;
                     float mapX = -playerPos.x * mapScale;
                     float mapY = -playerPos.z * mapScale;
+
+                    // Calculate dynamic center of the minimap mask.
+                    Transform maskTransform = minimapDisplayObject.transform.Find("MinimapMask");
+                    Vector2 dynamicCenter = Vector2.zero;
+                    if (maskTransform != null)
+                    {
+                        RectTransform maskRect = maskTransform.GetComponent<RectTransform>();
+                        if (maskRect != null)
+                        {
+                            dynamicCenter = new Vector2(maskRect.rect.width * 0.5f, maskRect.rect.height * 0.5f);
+                        }
+                    }
+
+                    // Preset offset: (-61, -71) for 1x, (-131, -141) for 2x.
+                    Vector2 presetOffset = doubleSizeEnabled ? new Vector2(-131f, -141f) : new Vector2(-61f, -71f);
+
+                    Vector2 targetPos = new Vector2(mapX, mapY) + dynamicCenter + presetOffset;
+
                     RectTransform contentRect = mapContentObject.GetComponent<RectTransform>();
                     if (contentRect != null)
                     {
-                        Vector2 targetPos = new Vector2(mapX, mapY) + mapOffset;
                         contentRect.anchoredPosition = Vector2.Lerp(contentRect.anchoredPosition, targetPos, Time.deltaTime * smoothingFactor);
                         UpdatePlayerDirectionIndicator();
                     }
@@ -833,6 +975,24 @@ namespace MinimapMod
             AddRedStaticMarker(new Vector3(-68.44f, -1.49f, 35.37f));
             AddRedStaticMarker(new Vector3(-34.55f, -1.54f, 27.06f));
             AddRedStaticMarker(new Vector3(70.33f, 1.37f, -10.01f));
+        }
+
+        private void UpdateTimeDisplayPosition()
+        {
+            if (minimapTimeContainer != null)
+            {
+                if (doubleSizeEnabled)
+                {
+                    // For 2x mode, set the time container to a fixed position.
+                    // Adjust these numbers until it appears correctly.
+                    minimapTimeContainer.anchoredPosition = new Vector2(0, 40);
+                }
+                else
+                {
+                    // For 1x mode, use the original position.
+                    minimapTimeContainer.anchoredPosition = new Vector2(0, 10);
+                }
+            }
         }
 
         private void CreateFallbackPlayerMarker(GameObject parent)
